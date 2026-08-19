@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meeting Office</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <div>
+            <strong>Meeting Office</strong>
+            <p>Escritório virtual</p>
+          </div>
+        </div>
+        <div id="room-pill" class="pill">Corredor</div>
+      </header>
+
+      <div id="game"></div>
+      <canvas id="avatar-proof" width="128" height="128" aria-hidden="true"></canvas>
+
+      <aside id="builder" class="panel panel-left hidden" aria-label="Colocar móveis">
+        <div class="panel-head">
+          <h2>Móveis</h2>
+          <button id="close-builder" type="button" class="ghost">Fechar</button>
+        </div>
+        <p class="panel-note">Clique no chão para colocar. <kbd>R</kbd> ou scroll gira. <kbd>X</kbd> apaga.</p>
+        <input id="builder-search" type="search" placeholder="Buscar móvel…" autocomplete="off" />
+        <div id="builder-groups" class="catalog-groups"></div>
+        <div id="builder-catalog" class="catalog"></div>
+        <button id="reset-furniture" type="button" class="ghost">Restaurar escritório</button>
+      </aside>
+
+      <aside id="customizer" class="panel hidden" aria-label="Customizar avatar">
+        <div class="panel-head">
+          <h2>Avatar</h2>
+          <button id="close-customizer" type="button" class="ghost">Fechar</button>
+        </div>
+        <label class="field">
+          Nome
+          <input id="name-input" type="text" maxlength="18" autocomplete="off" />
+        </label>
+        <div id="layer-controls" class="layer-controls"></div>
+        <button id="randomize" type="button">Aleatório</button>
+      </aside>
+
+      <footer id="hintbar" class="hintbar">
+        <span><kbd>WASD</kbd> andar</span>
+        <span><kbd>Shift</kbd> correr</span>
+        <span><kbd>clique</kbd> andar</span>
+        <span><kbd>E</kbd> sentar</span>
+        <span><kbd>G</kbd> acenar</span>
+        <span><kbd>C</kbd> avatar</span>
+        <span><kbd>F</kbd> móveis</span>
+        <span><kbd>scroll</kbd> zoom</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
