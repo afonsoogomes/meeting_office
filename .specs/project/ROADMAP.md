@@ -1,6 +1,6 @@
 # Roadmap
 
-**Current Milestone:** Escritório jogável (local)
+**Current Milestone:** Voz por proximidade
 **Status:** Complete
 
 ---
@@ -32,8 +32,13 @@
 
 ### Features
 
-**Multijogador** - PLANNED
-**Proximidade (ouvir quem está perto)** - PLANNED
+**Multijogador** - COMPLETE
+
+- Nome na primeira visita + `guestId` no localStorage
+- Servidor WebSocket de presença (uma sala)
+- Avatares remotos (andar, sentar, acenar)
+
+**Proximidade (ouvir quem está perto)** - COMPLETE
 
 ---
 
@@ -43,8 +48,9 @@
 
 ### Features
 
-**WebRTC por zona** - PLANNED
-**Chat rápido** - PLANNED
+**WebRTC por zona** - COMPLETE (isolamento por `roomAt`; volume por distância)
+**Chat rápido** - COMPLETE
+**Bolha de câmera** - PLANNED
 
 ---
 

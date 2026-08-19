@@ -11,25 +11,25 @@ export type Colleague = {
 
 export const COLLEAGUES: Colleague[] = [
   {
-    name: 'Ana',
-    line: 'Stand-up em 5 min?',
+    name: 'Rafa',
+    line: 'O stand-up já começou?',
     col: 10,
     row: 8,
-    appearance: { skin: 1, hair: 6, hairColor: 1, shirt: 3, pants: 4, hat: 0, accessory: 2 },
+    appearance: { skin: 2, hair: 4, hairColor: 0, shirt: 14, pants: 7, hat: 0, accessory: 3 },
   },
   {
-    name: 'Bruno',
-    line: 'Bora um café?',
+    name: 'Nina',
+    line: 'Tem bolo no lounge.',
     col: 11,
     row: 25,
-    appearance: { skin: 0, hair: 1, hairColor: 0, shirt: 5, pants: 2, hat: 0, accessory: 0 },
+    appearance: { skin: 1, hair: 18, hairColor: 6, shirt: 27, pants: 11, hat: 8, accessory: 0 },
   },
   {
-    name: 'Carla',
-    line: 'Fecha a porta, por favor.',
+    name: 'Caio',
+    line: 'Essa sala é reservada.',
     col: 33,
     row: 11,
-    appearance: { skin: 1, hair: 12, hairColor: 3, shirt: 8, pants: 1, hat: 4, accessory: 0 },
+    appearance: { skin: 0, hair: 9, hairColor: 2, shirt: 41, pants: 16, hat: 0, accessory: 5 },
   },
 ];
 

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { Pose } from '../../shared/protocol';
 import { FRAME_H, FRAME_W, paintPaperDoll, paintProofStrip } from './paperDoll';
 import type { Action, Appearance, Direction } from './appearance';
 import { facingFromScreen } from './appearance';
@@ -29,6 +30,8 @@ export class Character {
   action: Action = 'idle';
   displayName: string;
   sitting = false;
+  speaking = false;
+  micMuted = false;
 
   private readonly proof: boolean;
   private readonly canvasKey: string;
@@ -39,6 +42,9 @@ export class Character {
   private waveUntil = 0;
   private step = 0;
   private depthBias = 0;
+  private remoteTarget: { x: number; y: number } | null = null;
+  private readonly voiceRing: Phaser.GameObjects.Ellipse;
+  private readonly micBadge: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene, x: number, y: number, options: CharacterOptions) {
     this.scene = scene;
@@ -84,13 +90,32 @@ export class Character {
       .setOrigin(0.5, 1)
       .setResolution(2);
 
+    this.voiceRing = scene.add
+      .ellipse(x, y - 18, 36, 16, 0x7c9cff, 0.4)
+      .setVisible(false)
+      .setDepth(0);
+
+    this.micBadge = scene.add
+      .text(x, y - NAME_OFFSET + 12, 'mudo', {
+        fontFamily: 'Pixelify Sans, monospace',
+        fontSize: '8px',
+        color: '#c9b8a8',
+        stroke: '#1a1410',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0)
+      .setResolution(2)
+      .setVisible(false);
+
     this.speech = scene.add
       .text(x, y - SPEECH_OFFSET, '', {
         fontFamily: 'Pixelify Sans, monospace',
         fontSize: '10px',
         color: '#2a221c',
         backgroundColor: '#f7f3ea',
-        padding: { x: 5, y: 3 },
+        padding: { x: 6, y: 4 },
+        wordWrap: { width: 160 },
+        align: 'center',
       })
       .setOrigin(0.5, 1)
       .setResolution(2)
@@ -106,6 +131,66 @@ export class Character {
 
   setAppearance(appearance: Appearance): void {
     this.appearance = appearance;
+    this.redraw();
+  }
+
+  setSpeaking(speaking: boolean): void {
+    this.speaking = speaking;
+  }
+
+  setMicMuted(muted: boolean): void {
+    this.micMuted = muted;
+    this.micBadge.setVisible(muted);
+  }
+
+  snapshot(): Pose {
+    return {
+      x: this.root.x,
+      y: this.root.y,
+      facing: this.facing,
+      action: this.action,
+      step: this.step,
+      depthBias: this.depthBias,
+    };
+  }
+
+  applyRemote(pose: Pose, time: number): void {
+    this.remoteTarget = { x: pose.x, y: pose.y };
+    this.facing = pose.facing;
+    this.action = pose.action;
+    this.step = pose.step;
+    this.depthBias = pose.depthBias;
+    this.sitting = pose.action === 'sit' || pose.action === 'sleep';
+    this.waveUntil = pose.action === 'wave' ? time + WAVE_MS : 0;
+    this.root.setVelocity(0, 0);
+    if (this.sitting) this.root.setPosition(pose.x, pose.y);
+    this.redraw();
+  }
+
+  tickRemote(time: number, delta: number): void {
+    if (this.remoteTarget) {
+      if (this.sitting) {
+        this.root.setPosition(this.remoteTarget.x, this.remoteTarget.y);
+      } else {
+        const t = 1 - Math.exp(-14 * (delta / 1000));
+        this.root.x += (this.remoteTarget.x - this.root.x) * t;
+        this.root.y += (this.remoteTarget.y - this.root.y) * t;
+      }
+      this.root.setVelocity(0, 0);
+    }
+
+    if (this.action === 'walk' || this.action === 'run') {
+      const nextStep = poseStep(this.action, this.facing, time);
+      if (nextStep === this.step) return;
+      this.step = nextStep;
+      this.redraw();
+      return;
+    }
+
+    if (this.action !== 'wave' || time >= this.waveUntil) return;
+    const nextStep = poseStep('wave', this.facing, time - (this.waveUntil - WAVE_MS));
+    if (nextStep === this.step) return;
+    this.step = nextStep;
     this.redraw();
   }
 
@@ -215,7 +300,15 @@ export class Character {
     this.view.setDepth(depth);
     this.root.setDepth(depth);
     this.nameLabel.setPosition(x, y - NAME_OFFSET).setDepth(depth + 1);
+    this.micBadge.setPosition(x, y - NAME_OFFSET + 2).setDepth(depth + 1);
     this.speech.setPosition(x, y - SPEECH_OFFSET).setDepth(depth + 2);
+    this.voiceRing.setPosition(x, y - 20).setDepth(depth - 1);
+    if (this.speaking) {
+      const pulse = 0.28 + 0.18 * Math.sin(this.scene.time.now / 130);
+      this.voiceRing.setFillStyle(0x7c9cff, pulse).setVisible(true);
+    } else {
+      this.voiceRing.setVisible(false);
+    }
   }
 
   destroy(): void {
@@ -223,6 +316,8 @@ export class Character {
     this.view.destroy();
     this.nameLabel.destroy();
     this.speech.destroy();
+    this.voiceRing.destroy();
+    this.micBadge.destroy();
     this.scene.textures.remove(this.canvasKey);
   }
 

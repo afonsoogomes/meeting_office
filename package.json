@@ -3,15 +3,23 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "concurrently -n client,server,livekit -c cyan,magenta,yellow \"vite\" \"npm run start:dev -w meeting-office-server\" \"node scripts/start-livekit.mjs\"",
+    "dev:client": "vite",
+    "dev:server": "npm run start:dev -w meeting-office-server",
+    "dev:livekit": "node scripts/start-livekit.mjs",
+    "build": "tsc --noEmit && vite build && npm run build -w meeting-office-server",
     "preview": "vite preview"
   },
   "dependencies": {
+    "livekit-client": "^2.22.0",
     "phaser": "^4.2.1"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.2"
   }

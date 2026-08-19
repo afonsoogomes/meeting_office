@@ -3,3 +3,7 @@ dist
 tmp
 .DS_Store
 *.local
+.env
+server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm

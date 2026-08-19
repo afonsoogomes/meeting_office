@@ -1,4 +1,3 @@
-import { TILE_SIZE } from './constants';
 import {
   footprintCells,
   furnitureKind,
@@ -39,7 +38,7 @@ export function listSeats(places: FurniturePlace[], walkable?: boolean[][]): Sea
     if (!isSeatItem(place.item)) continue;
     const kind = furnitureKind(place.item);
     const facing = place.facing ?? 'down';
-    const use = kind.use ?? 'sit';
+    const use: UseKind = kind.use === 'sleep' ? 'sleep' : 'sit';
     seats.push({
       id: `${place.item}:${place.col},${place.row}:${index}`,
       place,

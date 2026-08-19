@@ -10,12 +10,13 @@ import {
 
 export type FurnitureLayer = 'floor' | 'object';
 export type FurnitureFacing = 'down' | 'up' | 'left' | 'right';
-export type FurnitureUse = 'sit' | 'sleep';
+export type FurnitureUse = 'sit' | 'sleep' | 'watch';
 export type FurnitureKind = CatalogEntry;
 export type { FurnitureGroup };
 
 /** A placed item. `col`,`row` is the north-west tile of the footprint. `facing` picks the directional sprite. */
 export type FurniturePlace = {
+  id?: string;
   item: string;
   col: number;
   row: number;
@@ -91,6 +92,7 @@ const EXTRAS: CatalogEntry[] = [
     h: 1,
     collide: true,
     layer: 'object',
+    use: 'watch',
     sprites: { down: 'tv' },
   },
 ];

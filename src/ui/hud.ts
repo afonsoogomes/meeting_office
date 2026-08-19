@@ -1,4 +1,3 @@
-import { CATALOG, type CatalogSlot } from '../character/catalog';
 import {
   cycleSlot,
   randomAppearance,
@@ -6,6 +5,8 @@ import {
   type Appearance,
   type SavedAvatar,
 } from '../character/appearance';
+import { CATALOG, type CatalogSlot } from '../character/catalog';
+import type { PresenceStatus } from '../net/presence';
 
 type HudHandlers = {
   onAppearance: (appearance: Appearance) => void;
@@ -16,6 +17,7 @@ const SLOT_ORDER: CatalogSlot[] = ['skin', 'hair', 'hairColor', 'shirt', 'pants'
 
 export class Hud {
   private readonly roomPill = document.querySelector('#room-pill')!;
+  private readonly presencePill = document.querySelector('#presence-pill')!;
   private readonly panel = document.querySelector('#customizer')!;
   private readonly nameInput = document.querySelector('#name-input') as HTMLInputElement;
   private avatar: SavedAvatar;
@@ -77,6 +79,21 @@ export class Hud {
 
   setRoom(name: string): void {
     this.roomPill.textContent = name;
+  }
+
+  setPresence(status: PresenceStatus, people: number): void {
+    if (status === 'connecting') {
+      this.presencePill.textContent = 'entrando…';
+      this.presencePill.classList.add('pill-muted');
+      return;
+    }
+    if (status !== 'online') {
+      this.presencePill.textContent = 'sozinho';
+      this.presencePill.classList.add('pill-muted');
+      return;
+    }
+    this.presencePill.classList.toggle('pill-muted', people <= 1);
+    this.presencePill.textContent = people <= 1 ? 'só você' : `${people} no escritório`;
   }
 
   toggleCustomizer(): void {

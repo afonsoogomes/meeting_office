@@ -18,7 +18,7 @@
 - Language: TypeScript
 - Bundler: Vite
 
-**Key dependencies:** Phaser, Vite
+**Key dependencies:** Phaser, Vite, NestJS, `ws`, LiveKit
 
 ## Scope
 
@@ -28,13 +28,16 @@
 - Mapa de escritório com colisão, câmera e zoom
 - Zonas com HUD e colegas NPC para o espaço parecer vivo
 - Customização básica de avatar
+- Nome na primeira visita + `guestId` local
+- Presença compartilhada (ver outros avatares no mesmo mapa)
+- Voz por proximidade (LiveKit + mixer espacial)
 - `npm run dev`
 
 **Explicitly out of scope:**
 
-- Multijogador em tempo real
-- Áudio/vídeo (WebRTC)
-- Chat persistente, contas e backend
+- Contas e login
+- Vídeo / compartilhar tela
+- Layout de móveis sincronizado entre clientes
 
 ## Constraints
 

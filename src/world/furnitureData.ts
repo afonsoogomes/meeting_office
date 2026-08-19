@@ -30,7 +30,7 @@ export type CatalogEntry = {
   h: number;
   collide: boolean;
   layer: 'floor' | 'object';
-  use?: 'sit' | 'sleep';
+  use?: 'sit' | 'sleep' | 'watch';
   side?: { w: number; h: number };
   sprites: { down: string; right?: string; up?: string };
 };
@@ -531,10 +531,10 @@ export const GENERATED_CATALOG: CatalogEntry[] = [
   { id: "small-junimo-plush-1763", label: "Small Junimo Plush", group: "decor", w: 1, h: 1, collide: true, layer: "object", sprites: { down: "small-junimo-plush-1763" } },
   { id: "squirrel-figurine", label: "Squirrel Figurine", group: "decor", w: 1, h: 1, collide: true, layer: "object", sprites: { down: "squirrel-figurine" } },
   { id: "standing-geode", label: "Standing Geode", group: "decor", w: 1, h: 1, collide: true, layer: "object", sprites: { down: "standing-geode" } },
-  { id: "budget-tv", label: "TV antiga", group: "decor", w: 2, h: 2, collide: true, layer: "object", sprites: { down: "budget-tv" } },
-  { id: "floor-tv", label: "TV de chão", group: "decor", w: 2, h: 1, collide: true, layer: "object", sprites: { down: "floor-tv" } },
-  { id: "plasma-tv", label: "TV plasma", group: "decor", w: 3, h: 1, collide: true, layer: "object", sprites: { down: "plasma-tv" } },
-  { id: "tropical-tv", label: "TV tropical", group: "decor", w: 3, h: 1, collide: true, layer: "object", sprites: { down: "tropical-tv" } },
+  { id: "budget-tv", label: "TV antiga", group: "decor", w: 2, h: 2, collide: true, layer: "object", use: 'watch', sprites: { down: "budget-tv" } },
+  { id: "floor-tv", label: "TV de chão", group: "decor", w: 2, h: 1, collide: true, layer: "object", use: 'watch', sprites: { down: "floor-tv" } },
+  { id: "plasma-tv", label: "TV plasma", group: "decor", w: 3, h: 1, collide: true, layer: "object", use: 'watch', sprites: { down: "plasma-tv" } },
+  { id: "tropical-tv", label: "TV tropical", group: "decor", w: 3, h: 1, collide: true, layer: "object", use: 'watch', sprites: { down: "tropical-tv" } },
   { id: "decorative-bowl", label: "Tigela decorativa", group: "decor", w: 1, h: 1, collide: true, layer: "object", sprites: { down: "decorative-bowl" } },
   { id: "totem-pole", label: "Totem Pole", group: "decor", w: 1, h: 1, collide: true, layer: "object", sprites: { down: "totem-pole" } },
   { id: "wumbus-statue", label: "Wumbus Statue", group: "decor", w: 2, h: 1, collide: true, layer: "object", sprites: { down: "wumbus-statue" } },

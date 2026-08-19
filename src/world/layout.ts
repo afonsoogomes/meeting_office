@@ -1,7 +1,8 @@
 import { TILE_SIZE, type TileId } from './constants';
 import { CATALOG, clonePlaces, type FurnitureFacing, type FurniturePlace } from './furniture';
-import { buildHouse, type BuiltHouse } from './house';
+import { buildHouse, type BuiltHouse, type HouseSpec } from './house';
 import { OFFICE_HOUSE } from './houses/office';
+import type { OfficeSnapshot, OfficeSpec } from '../../shared/office';
 
 export { TILE_SIZE, Tile, SOLID_TILES, isWalkable } from './constants';
 export type { TileId } from './constants';
@@ -105,14 +106,15 @@ function parseStoredPlace(entry: unknown): FurniturePlace | null {
     return null;
   }
   const facing = raw.facing && FACING_SET.has(raw.facing) ? raw.facing : undefined;
-  return { item, col, row, facing };
+  const id = typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : undefined;
+  return { ...(id ? { id } : {}), item, col, row, facing };
 }
 
 export function saveOfficeFurniture(places: FurniturePlace[]): void {
   localStorage.setItem(FURNITURE_STORAGE, JSON.stringify(places));
 }
 
-export type RoomId = 'office' | 'meeting' | 'lounge' | 'cafe' | 'hall';
+export type RoomId = string;
 
 export type Room = {
   id: RoomId;
@@ -125,26 +127,87 @@ export type Room = {
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
+export type FurnitureSync = 'remote' | 'local';
+
+let activeHouse: HouseSpec = OFFICE_HOUSE;
 let cached: BuiltHouse | null = null;
+let furnitureSync: FurnitureSync = 'local';
+let bootFurniture: FurniturePlace[] | null = null;
 
 export function getBuiltHouse(): BuiltHouse {
-  if (!cached || cached.spec !== OFFICE_HOUSE) cached = buildHouse(OFFICE_HOUSE);
+  if (!cached || cached.spec !== activeHouse) cached = buildHouse(activeHouse);
   return cached;
 }
 
-export const MAP_COLS = OFFICE_HOUSE.mapCols;
-export const MAP_ROWS = OFFICE_HOUSE.mapRows;
+export let MAP_COLS = OFFICE_HOUSE.mapCols;
+export let MAP_ROWS = OFFICE_HOUSE.mapRows;
 
-export const ROOMS: Room[] = OFFICE_HOUSE.rooms.map((room) => ({
-  id: room.id as RoomId,
-  name: room.name,
-  x: room.x,
-  y: room.y,
-  w: room.w,
-  h: room.h,
-}));
+export let ROOMS: Room[] = roomsFrom(OFFICE_HOUSE);
 
-export const DOORS: Rect[] = OFFICE_HOUSE.doors;
+export let DOORS: Rect[] = OFFICE_HOUSE.doors.map((door) => ({ ...door }));
+
+export function applyHouseSpec(spec: OfficeSpec): void {
+  activeHouse = {
+    id: spec.id,
+    mapCols: spec.mapCols,
+    mapRows: spec.mapRows,
+    spawn: { ...spec.spawn },
+    rooms: spec.rooms.map((room) => ({ ...room })),
+    doors: spec.doors.map((door) => ({ ...door })),
+    stairs: spec.stairs?.map((stair) => ({ ...stair })),
+    labels: spec.labels?.map((label) => ({ ...label })),
+    furniture: [],
+  };
+  cached = null;
+  MAP_COLS = spec.mapCols;
+  MAP_ROWS = spec.mapRows;
+  ROOMS = roomsFrom(activeHouse);
+  DOORS = activeHouse.doors.map((door) => ({ ...door }));
+  SPAWN = tileToWorld(spec.spawn.col, spec.spawn.row);
+  MAP_WIDTH = MAP_COLS * TILE_SIZE;
+  MAP_HEIGHT = MAP_ROWS * TILE_SIZE;
+}
+
+export function applyOfficeSnapshot(snapshot: OfficeSnapshot): void {
+  applyHouseSpec(snapshot.spec);
+  furnitureSync = 'remote';
+  bootFurniture = clonePlaces(snapshot.furniture);
+}
+
+export function useLocalOffice(): void {
+  applyHouseSpec({
+    id: OFFICE_HOUSE.id,
+    mapCols: OFFICE_HOUSE.mapCols,
+    mapRows: OFFICE_HOUSE.mapRows,
+    spawn: OFFICE_HOUSE.spawn,
+    rooms: OFFICE_HOUSE.rooms,
+    doors: OFFICE_HOUSE.doors,
+    stairs: OFFICE_HOUSE.stairs,
+    labels: OFFICE_HOUSE.labels,
+  });
+  furnitureSync = 'local';
+  bootFurniture = null;
+}
+
+export function isFurnitureRemote(): boolean {
+  return furnitureSync === 'remote';
+}
+
+export function initialFurniture(): FurniturePlace[] {
+  if (furnitureSync === 'remote' && bootFurniture) return clonePlaces(bootFurniture);
+  return loadOfficeFurniture();
+}
+
+function roomsFrom(house: HouseSpec): Room[] {
+  return house.rooms.map((room) => ({
+    id: room.id,
+    name: room.name,
+    x: room.x,
+    y: room.y,
+    w: room.w,
+    h: room.h,
+  }));
+}
 
 export function createGroundGrid(): TileId[][] {
   return getBuiltHouse().grid;
@@ -201,7 +264,7 @@ export function roomAt(x: number, y: number): Room {
   return nearest;
 }
 
-export const SPAWN = tileToWorld(OFFICE_HOUSE.spawn.col, OFFICE_HOUSE.spawn.row);
+export let SPAWN = tileToWorld(OFFICE_HOUSE.spawn.col, OFFICE_HOUSE.spawn.row);
 
-export const MAP_WIDTH = MAP_COLS * TILE_SIZE;
-export const MAP_HEIGHT = MAP_ROWS * TILE_SIZE;
+export let MAP_WIDTH = MAP_COLS * TILE_SIZE;
+export let MAP_HEIGHT = MAP_ROWS * TILE_SIZE;

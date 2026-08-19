@@ -16,6 +16,8 @@ html,
 body {
   margin: 0;
   height: 100%;
+  height: 100svh;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
@@ -25,7 +27,9 @@ body {
   position: relative;
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
 }
 
 .topbar,
@@ -33,28 +37,49 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 10px 16px;
+  gap: 12px 16px;
+  padding: 8px 16px;
   background: var(--panel);
   border-color: var(--line);
+  min-height: 0;
 }
 
 .topbar {
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--line);
 }
 
 .hintbar {
   border-top: 1px solid var(--line);
-  justify-content: center;
-  flex-wrap: wrap;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   font-size: 13px;
   color: var(--muted);
+  scrollbar-width: none;
+}
+
+.hintbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hintbar span {
+  flex: 0 0 auto;
+}
+
+.pills {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .brand {
   display: flex;
   gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
 .brand p {
@@ -71,6 +96,24 @@ body {
   box-shadow: 0 0 12px var(--accent);
 }
 
+@media (min-width: 1100px) {
+  .hintbar {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .brand p {
+    display: none;
+  }
+
+  .pill,
+  button.pill {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+}
+
 .pill {
   padding: 6px 12px;
   border-radius: 999px;
@@ -80,15 +123,118 @@ body {
   font-weight: 600;
 }
 
+.pill-muted {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.pill-live {
+  color: var(--accent);
+}
+
+button.pill {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: #273049;
+  border: 0;
+}
+
 #game {
   position: relative;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: #0e1117;
 }
 
 #game canvas {
+  position: relative;
+  z-index: 1;
   display: block;
   image-rendering: pixelated;
+}
+
+#tv-screens {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tv-screen {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 1px;
+  background: #050608;
+  pointer-events: none;
+}
+
+.tv-screen-player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 180px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+#chat-log {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: min(380px, calc(100% - 24px));
+  max-height: 46%;
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.chat-line {
+  pointer-events: auto;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(12, 14, 20, 0.72);
+  color: #f4f6fb;
+  font-size: 13px;
+  line-height: 1.35;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  word-break: break-word;
+}
+
+.chat-line strong {
+  margin-right: 6px;
+  color: #fff;
+}
+
+#chat-form {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+}
+
+#chat-input {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(21, 25, 35, 0.88);
+  backdrop-filter: blur(8px);
 }
 
 #avatar-proof {
@@ -97,10 +243,12 @@ body {
 
 .panel {
   position: absolute;
-  top: 64px;
-  right: 16px;
-  width: 280px;
+  top: 12px;
+  right: 12px;
+  width: min(280px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
   padding: 16px;
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(28, 33, 44, 0.94);
@@ -114,10 +262,8 @@ body {
 
 .panel-left {
   right: auto;
-  left: 16px;
-  width: 320px;
-  max-height: calc(100% - 148px);
-  overflow: auto;
+  left: 12px;
+  width: min(320px, calc(100% - 24px));
 }
 
 .panel-note {
@@ -234,8 +380,32 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tv-error {
+  margin: -4px 0 10px;
+  color: #f0a0a0;
+  font-size: 12px;
+}
+
+.tv-error.hidden {
+  display: none;
+}
+
+.tv-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tv-actions button {
+  flex: 1;
 }
 
 .ghost {
@@ -249,6 +419,58 @@ button:hover {
 
 .stepper button {
   min-width: 32px;
+}
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 12, 18, 0.92);
+  backdrop-filter: blur(12px);
+}
+
+.gate.hidden {
+  display: none;
+}
+
+.gate-card {
+  width: min(100%, 380px);
+  padding: 28px 24px 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(28, 33, 44, 0.96);
+}
+
+.gate-kicker {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.gate-card h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-family: "Pixelify Sans", sans-serif;
+}
+
+.gate-copy {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.gate-card button {
+  width: 100%;
+  margin-top: 8px;
+  background: #273049;
+  border-color: var(--accent);
 }
 
 kbd {

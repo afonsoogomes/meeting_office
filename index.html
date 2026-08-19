@@ -2,7 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Meeting Office</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -22,48 +22,109 @@
             <p>Escritório virtual</p>
           </div>
         </div>
-        <div id="room-pill" class="pill">Corredor</div>
+        <div class="pills">
+          <button id="mic-pill" class="pill pill-muted" type="button">voz off</button>
+          <button id="deaf-pill" class="pill pill-muted" type="button">som</button>
+          <div id="presence-pill" class="pill pill-muted">sozinho</div>
+          <div id="room-pill" class="pill">Corredor</div>
+        </div>
       </header>
 
-      <div id="game"></div>
-      <canvas id="avatar-proof" width="128" height="128" aria-hidden="true"></canvas>
+      <div id="game">
+        <div id="tv-screens" aria-hidden="true"></div>
+        <div id="chat-log" aria-live="polite"></div>
+        <form id="chat-form" autocomplete="off">
+          <input
+            id="chat-input"
+            type="text"
+            maxlength="80"
+            autocomplete="off"
+            placeholder="Enter para falar"
+          />
+        </form>
 
-      <aside id="builder" class="panel panel-left hidden" aria-label="Colocar móveis">
-        <div class="panel-head">
-          <h2>Móveis</h2>
-          <button id="close-builder" type="button" class="ghost">Fechar</button>
-        </div>
-        <p class="panel-note">Clique no chão para colocar. <kbd>R</kbd> ou scroll gira. <kbd>X</kbd> apaga.</p>
-        <input id="builder-search" type="search" placeholder="Buscar móvel…" autocomplete="off" />
-        <div id="builder-groups" class="catalog-groups"></div>
-        <div id="builder-catalog" class="catalog"></div>
-        <button id="reset-furniture" type="button" class="ghost">Restaurar escritório</button>
-      </aside>
+        <aside id="builder" class="panel panel-left hidden" aria-label="Colocar móveis">
+          <div class="panel-head">
+            <h2>Móveis</h2>
+            <button id="close-builder" type="button" class="ghost">Fechar</button>
+          </div>
+          <p class="panel-note">Clique no chão para colocar. <kbd>R</kbd> ou scroll gira. <kbd>X</kbd> apaga.</p>
+          <input id="builder-search" type="search" placeholder="Buscar móvel…" autocomplete="off" />
+          <div id="builder-groups" class="catalog-groups"></div>
+          <div id="builder-catalog" class="catalog"></div>
+          <button id="reset-furniture" type="button" class="ghost">Restaurar escritório</button>
+        </aside>
 
-      <aside id="customizer" class="panel hidden" aria-label="Customizar avatar">
-        <div class="panel-head">
-          <h2>Avatar</h2>
-          <button id="close-customizer" type="button" class="ghost">Fechar</button>
-        </div>
-        <label class="field">
-          Nome
-          <input id="name-input" type="text" maxlength="18" autocomplete="off" />
-        </label>
-        <div id="layer-controls" class="layer-controls"></div>
-        <button id="randomize" type="button">Aleatório</button>
-      </aside>
+        <aside id="tv-panel" class="panel hidden" aria-label="TV">
+          <div class="panel-head">
+            <h2>TV</h2>
+            <button id="close-tv" type="button" class="ghost">Fechar</button>
+          </div>
+          <p class="panel-note">Cola o link do vídeo. Todo mundo no escritório vê a mesma tela.</p>
+          <div id="tv-platforms" class="catalog-groups"></div>
+          <form id="tv-form" autocomplete="off">
+            <label class="field">
+              Link
+              <input id="tv-url" type="text" autocomplete="off" placeholder="https://youtu.be/…" />
+            </label>
+            <p id="tv-error" class="tv-error hidden" role="alert"></p>
+            <div class="tv-actions">
+              <button id="tv-play" type="submit">Assistir</button>
+              <button id="tv-stop" type="button" class="ghost">Desligar</button>
+            </div>
+          </form>
+        </aside>
+
+        <aside id="customizer" class="panel hidden" aria-label="Customizar avatar">
+          <div class="panel-head">
+            <h2>Avatar</h2>
+            <button id="close-customizer" type="button" class="ghost">Fechar</button>
+          </div>
+          <label class="field">
+            Nome
+            <input id="name-input" type="text" maxlength="18" autocomplete="off" />
+          </label>
+          <div id="layer-controls" class="layer-controls"></div>
+          <button id="randomize" type="button">Aleatório</button>
+        </aside>
+      </div>
+
+      <div id="gate" class="gate hidden" role="dialog" aria-labelledby="gate-title">
+        <form id="gate-form" class="gate-card">
+          <p class="gate-kicker">Meeting Office</p>
+          <h1 id="gate-title">Como você se chama?</h1>
+          <p class="gate-copy">O nome aparece em cima do personagem. Depois dá para criar uma conta sem perder o avatar.</p>
+          <label class="field">
+            Nome
+            <input
+              id="gate-name"
+              type="text"
+              maxlength="18"
+              minlength="2"
+              autocomplete="nickname"
+              required
+              placeholder="seu nome"
+            />
+          </label>
+          <button type="submit">Entrar no escritório</button>
+        </form>
+      </div>
 
       <footer id="hintbar" class="hintbar">
         <span><kbd>WASD</kbd> andar</span>
         <span><kbd>Shift</kbd> correr</span>
         <span><kbd>clique</kbd> andar</span>
-        <span><kbd>E</kbd> sentar</span>
+        <span><kbd>E</kbd> sentar / TV</span>
         <span><kbd>G</kbd> acenar</span>
         <span><kbd>C</kbd> avatar</span>
         <span><kbd>F</kbd> móveis</span>
+        <span><kbd>Enter</kbd> falar</span>
+        <span><kbd>M</kbd> mic</span>
+        <span><kbd>K</kbd> som</span>
         <span><kbd>scroll</kbd> zoom</span>
       </footer>
     </div>
+    <canvas id="avatar-proof" width="128" height="128" aria-hidden="true"></canvas>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 # Como montar outra casa
 
-Uma casa é um `HouseSpec` em `src/world/houses/`. O escritório (`office.ts`) é o exemplo completo.
+Uma casa é um `HouseSpec`. O escritório modelo está em `shared/office-default.ts` (seed no banco). `src/world/houses/office.ts` só reexporta esse seed para o Phaser.
 
 O builder (`src/world/house.ts`) deriva colisão e desenho. Não autotile à mão.
 
