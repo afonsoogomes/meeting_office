@@ -1,5 +1,11 @@
 import { TILE_SIZE, type TileId } from './constants';
-import { CATALOG, clonePlaces, type FurnitureFacing, type FurniturePlace } from './furniture';
+import {
+  CATALOG,
+  clonePlaces,
+  liftWallHangings,
+  type FurnitureFacing,
+  type FurniturePlace,
+} from './furniture';
 import { buildHouse, type BuiltHouse, type HouseSpec } from './house';
 import { OFFICE_HOUSE } from './houses/office';
 import type { OfficeSnapshot, OfficeSpec } from '../../shared/office';
@@ -32,7 +38,7 @@ export function loadOfficeFurniture(): FurniturePlace[] {
       return place ? [place] : [];
     });
     const migrated = current ? places : shiftShrunkTables(places);
-    const next = nudgeChairsOffDiningTables(migrated);
+    const next = liftWallHangings(nudgeChairsOffDiningTables(migrated), createWallGrid());
     if (!current) saveOfficeFurniture(next);
     return next;
   } catch {
@@ -194,8 +200,8 @@ export function isFurnitureRemote(): boolean {
 }
 
 export function initialFurniture(): FurniturePlace[] {
-  if (furnitureSync === 'remote' && bootFurniture) return clonePlaces(bootFurniture);
-  return loadOfficeFurniture();
+  const places = furnitureSync === 'remote' && bootFurniture ? clonePlaces(bootFurniture) : loadOfficeFurniture();
+  return liftWallHangings(places, createWallGrid());
 }
 
 function roomsFrom(house: HouseSpec): Room[] {
@@ -217,6 +223,14 @@ export function createFloorGrid(): boolean[][] {
   const { spec, role } = getBuiltHouse();
   return Array.from({ length: spec.mapRows }, (_, row) =>
     Array.from({ length: spec.mapCols }, (_, col) => role[row][col] === 'floor'),
+  );
+}
+
+/** North wallpaper cells — paintings and sconces hang here, not on the floor. */
+export function createWallGrid(): boolean[][] {
+  const { spec, role } = getBuiltHouse();
+  return Array.from({ length: spec.mapRows }, (_, row) =>
+    Array.from({ length: spec.mapCols }, (_, col) => role[row][col] === 'back'),
   );
 }
 

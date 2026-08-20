@@ -7,3 +7,8 @@ tmp
 server/data/*.db
 server/data/*.db-wal
 server/data/*.db-shm
+server/data/roms/**
+!server/data/roms/.gitkeep
+!server/data/roms/snes/
+!server/data/roms/snes/.gitkeep
+infra/emulatorjs-netplay/node_modules

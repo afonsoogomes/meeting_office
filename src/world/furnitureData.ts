@@ -29,8 +29,10 @@ export type CatalogEntry = {
   w: number;
   h: number;
   collide: boolean;
-  layer: 'floor' | 'object';
-  use?: 'sit' | 'sleep' | 'watch';
+  layer: 'floor' | 'object' | 'wall';
+  use?: 'sit' | 'sleep' | 'watch' | 'play';
+  /** People who can sit/sleep. Default: chairs 1, benches/sofas by width, single bed 1, double 2. */
+  slots?: number;
   side?: { w: number; h: number };
   sprites: { down: string; right?: string; up?: string };
 };

@@ -2,14 +2,36 @@ import Phaser from 'phaser';
 import { Character } from '../character/Character';
 import { loadAvatar, loadPresenceId } from '../character/appearance';
 import { PresenceClient, type PresenceStatus } from '../net/presence';
+import {
+  cancelGameSession,
+  createGameSession,
+  fetchGameCatalog,
+  fetchGameSessions,
+  fetchPlayConfig,
+  finishGameSession,
+  joinGameSession,
+  leaveGameSession,
+  markGameConnected,
+  startGameSession,
+  readyGameSession,
+  reportNetplayRoom,
+  watchGameSession,
+  GamesApiError,
+} from '../net/games';
+import type { GameCatalogItem, GameSessionView } from '../../shared/game-session';
+import { isActiveSession } from '../../shared/game-session';
 import { VoiceClient } from '../net/voice';
 import type { FurniturePlacement, Peer, Pose, TvScreen } from '../../shared/protocol';
 import { BuilderPanel } from '../ui/builder';
 import { RoomChat } from '../ui/chat';
 import { Hud } from '../ui/hud';
+import { TvAudioHud } from '../ui/tvAudio';
+import { ArcadePanel } from '../ui/arcadePanel';
+import { ArcadeOverlay } from '../ui/arcadeOverlay';
 import { TvPanel } from '../ui/tvPanel';
 import { TvScreens } from '../ui/tvScreens';
 import { VoiceHud } from '../ui/voiceHud';
+import { MediaStage } from '../ui/mediaStage';
 import { BuildGhost } from '../world/buildMode';
 import { COLLEAGUES, colleagueWorld } from '../world/colleagues';
 import {
@@ -17,14 +39,18 @@ import {
   CATALOG,
   drawFurniture,
   furnitureAt,
+  liftWallHangings,
   nextFacing,
+  snapWallPlace,
   type FurniturePlace,
 } from '../world/furniture';
 import { drawHouse } from '../world/house';
 import {
+  claimSeat,
   isNearSeat,
   listSeats,
   nearestSeat,
+  occupiedSeatIds,
   seatAt,
   sitAnchor,
   type Seat,
@@ -38,6 +64,7 @@ import {
   TILE_SIZE,
   blockWalkable,
   createFloorGrid,
+  createWallGrid,
   createGroundGrid,
   defaultFurniture,
   getBuiltHouse,
@@ -50,6 +77,13 @@ import {
   type TileId,
 } from '../world/layout';
 import { findPath, type TilePos } from '../world/path';
+import {
+  arcadeAt,
+  isNearArcade,
+  listArcades,
+  nearestArcade,
+  type ArcadeSpot,
+} from '../world/arcade';
 import { distanceToPlace, isNearTv, listTvs, nearestTv, tvAt, type TvSpot } from '../world/tv';
 import type { VoicePlace } from '../audio/spatial';
 
@@ -64,6 +98,7 @@ type KeyMap = {
   F: Phaser.Input.Keyboard.Key;
   R: Phaser.Input.Keyboard.Key;
   X: Phaser.Input.Keyboard.Key;
+  V: Phaser.Input.Keyboard.Key;
 };
 
 const ARRIVE = 4;
@@ -115,6 +150,7 @@ export class OfficeScene extends Phaser.Scene {
   private presence!: PresenceClient;
   private voice!: VoiceClient;
   private voiceHud!: VoiceHud;
+  private mediaStage!: MediaStage;
   private presenceStatus: PresenceStatus = 'offline';
   private localGuestId = '';
   private lastPoseAt = 0;
@@ -123,13 +159,17 @@ export class OfficeScene extends Phaser.Scene {
   private chat!: RoomChat;
   private builder!: BuilderPanel;
   private tvPanel!: TvPanel;
+  private arcadePanel!: ArcadePanel;
+  private arcadeOverlay!: ArcadeOverlay;
   private tvScreens!: TvScreens;
+  private tvAudio!: TvAudioHud;
   private ghost!: BuildGhost;
   private keys!: KeyMap;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private lastRoom = '';
   private walkable: boolean[][] = [];
   private floor: boolean[][] = [];
+  private wall: boolean[][] = [];
   private furniture: FurniturePlace[] = [];
   private furnitureImages: Phaser.GameObjects.Image[] = [];
   private hover!: Phaser.GameObjects.Image;
@@ -137,10 +177,16 @@ export class OfficeScene extends Phaser.Scene {
   private lastGood = { x: 0, y: 0 };
   private seats: Seat[] = [];
   private tvs: TvSpot[] = [];
+  private arcades: ArcadeSpot[] = [];
   private netTvs = new Map<string, string>();
   private seated: Seat | null = null;
   private pendingSeat: Seat | null = null;
   private pendingTv: TvSpot | null = null;
+  private pendingArcade: ArcadeSpot | null = null;
+  private gameSession: GameSessionView | null = null;
+  private gameSessions: GameSessionView[] = [];
+  private gameCatalog: GameCatalogItem[] = [];
+  private playPoll = 0;
   private usePrompt!: Phaser.GameObjects.Text;
   private zoomTarget = ZOOM_DEFAULT;
 
@@ -167,9 +213,18 @@ export class OfficeScene extends Phaser.Scene {
         void this.voice.toggleMute();
       },
       onDeaf: () => this.voice.toggleDeaf(),
+      onCamera: () => {
+        void this.voice.unlock();
+        void this.voice.toggleCamera();
+      },
+      onShare: () => {
+        void this.voice.unlock();
+        void this.voice.toggleScreenShare();
+      },
     });
     this.voice = new VoiceClient(() => this.refreshVoiceHud());
     this.voice.prepare(this.localGuestId, avatar.name);
+    this.mediaStage = new MediaStage();
     this.chat = new RoomChat((text) => this.sendChat(text));
     this.builder = new BuilderPanel({
       onSelect: (id) => this.ghost.setItem(id),
@@ -177,13 +232,34 @@ export class OfficeScene extends Phaser.Scene {
       onClose: () => this.setBuildMode(false),
     });
     this.tvScreens = new TvScreens();
+    this.tvAudio = new TvAudioHud({
+      onChange: (audio) => this.tvScreens.setAudio(audio),
+    });
+    this.tvScreens.setAudio(this.tvAudio.state());
     this.tvPanel = new TvPanel({
       onPlay: (tv, videoId) => this.playTv(tv, videoId),
       onStop: (tv) => this.stopTv(tv),
     });
+    this.arcadePanel = new ArcadePanel({
+      onCreate: (gameId) => void this.createArcadeSession(gameId),
+      onJoin: (sessionId) => void this.joinArcadeSession(sessionId),
+      onWatch: (sessionId) => void this.watchArcadeSession(sessionId),
+      onReady: () => void this.readyArcadeSession(),
+      onStart: () => void this.startArcadeSession(),
+      onOpenEmulator: () => void this.openArcadeEmulator(),
+      onLeave: () => void this.leaveArcadeSession(),
+      onCancel: () => void this.cancelArcadeSession(),
+    });
+    this.arcadeOverlay = new ArcadeOverlay({
+      onRoom: (roomId) => void this.publishNetplayRoom(roomId),
+      onPlaying: () => void this.markArcadeConnected(),
+      onLeave: () => void this.exitArcadeOverlay(),
+      onNeedRoom: () => void this.refreshPlayConfig(),
+    });
 
     const grid = createGroundGrid();
     this.floor = createFloorGrid();
+    this.wall = createWallGrid();
     this.furniture = initialFurniture();
     this.walkable = this.makeWalkable(grid);
     drawHouse(this, getBuiltHouse());
@@ -241,7 +317,7 @@ export class OfficeScene extends Phaser.Scene {
     const keyboard = this.input.keyboard;
     if (!keyboard) throw new Error('Keyboard plugin missing');
     this.cursors = keyboard.createCursorKeys();
-    this.keys = keyboard.addKeys('W,A,S,D,E,G,C,F,R,X') as KeyMap;
+    this.keys = keyboard.addKeys('W,A,S,D,E,G,C,F,R,X,V') as KeyMap;
     this.input.mouse?.disableContextMenu();
     const unbindFields = allowTypingInFields(keyboard);
 
@@ -274,6 +350,14 @@ export class OfficeScene extends Phaser.Scene {
     );
 
     keyboard.on('keydown-ESC', () => {
+      if (this.arcadeOverlay.isOpen()) {
+        void this.exitArcadeOverlay();
+        return;
+      }
+      if (this.arcadePanel.isOpen()) {
+        this.arcadePanel.setOpen(false);
+        return;
+      }
       if (this.tvPanel.isOpen()) {
         this.tvPanel.setOpen(false);
         return;
@@ -292,6 +376,11 @@ export class OfficeScene extends Phaser.Scene {
       if (this.hud.isTyping()) return;
       this.voice.toggleDeaf();
     });
+    keyboard.on('keydown-V', () => {
+      if (this.hud.isTyping()) return;
+      void this.voice.unlock();
+      void this.voice.toggleCamera();
+    });
     keyboard.on('keydown-BACKSPACE', (event: KeyboardEvent) => {
       if (!this.builder.isOpen() || this.hud.isTyping()) return;
       event.preventDefault();
@@ -299,11 +388,12 @@ export class OfficeScene extends Phaser.Scene {
     });
 
     this.presence = new PresenceClient({
-      onWelcome: (peers, tvs, furniture) => {
+      onWelcome: (peers, tvs, furniture, games) => {
         this.clearRemotes();
         for (const peer of peers) this.upsertRemote(peer);
         this.replaceTvs(tvs);
         this.replaceSharedFurniture(furniture);
+        this.applyGameSessions(games);
         this.refreshPresenceHud();
       },
       onJoin: (peer) => {
@@ -322,8 +412,9 @@ export class OfficeScene extends Phaser.Scene {
         remote.setAppearance(appearance);
       },
       onChat: (guestId, name, text) => this.hearChat(guestId, name, text),
-      onTv: (tvId, platform, videoId) => this.applyNetworkTv(tvId, platform, videoId, true),
+      onTv: (tvId, platform, videoId) => this.applyNetworkTv(tvId, platform, videoId),
       onFurniture: (places) => this.replaceSharedFurniture(places),
+      onGame: (sessions) => this.applyGameSessions(sessions),
       onStatus: (status) => {
         this.presenceStatus = status;
         if (status === 'offline') this.clearRemotes();
@@ -343,10 +434,14 @@ export class OfficeScene extends Phaser.Scene {
       unbindFields();
       this.presence.disconnect();
       this.voice.disconnect();
+      this.stopPlayPoll();
+      this.arcadeOverlay.close();
     });
     this.events.once(Phaser.Scenes.Events.DESTROY, () => {
       this.presence.disconnect();
       this.voice.disconnect();
+      this.stopPlayPoll();
+      this.arcadeOverlay.close();
     });
   }
 
@@ -357,12 +452,23 @@ export class OfficeScene extends Phaser.Scene {
     if (this.builder.isOpen()) this.tvScreens.hide();
     else this.tvScreens.tick(this);
 
+    if (this.arcadeOverlay.isOpen()) {
+      this.player.move(0, 0, time);
+      this.player.syncPosition();
+      this.flushPose();
+      this.tickVoice();
+      for (const remote of this.remotes.values()) remote.tickRemote(time, delta);
+      for (const npc of this.colleagues) npc.syncPosition();
+      return;
+    }
+
     const held = this.readMove();
     const running = this.isRunning();
     if (held) {
       this.path = [];
       this.pendingSeat = null;
       this.pendingTv = null;
+      this.pendingArcade = null;
       if (this.seated) this.standUp();
       this.player.move(held.x, held.y, time, running);
     } else if (this.seated) {
@@ -380,6 +486,7 @@ export class OfficeScene extends Phaser.Scene {
       }
       if (Phaser.Input.Keyboard.JustDown(this.keys.C)) {
         this.tvPanel.setOpen(false);
+        this.arcadePanel.setOpen(false);
         this.setBuildMode(false);
         this.hud.toggleCustomizer();
       }
@@ -458,10 +565,12 @@ export class OfficeScene extends Phaser.Scene {
     this.builder.setOpen(open);
     if (open) {
       this.tvPanel.setOpen(false);
+      this.arcadePanel.setOpen(false);
       this.hud.setCustomizerOpen(false);
       this.path = [];
       this.pendingSeat = null;
       this.pendingTv = null;
+      this.pendingArcade = null;
       this.hover.setVisible(false);
       this.ghost.setItem(this.builder.selectedId());
     } else {
@@ -476,11 +585,15 @@ export class OfficeScene extends Phaser.Scene {
 
   private pointerDraft(): FurniturePlace {
     const tile = this.pointerTile(this.input.activePointer);
-    return this.ghost.draft(tile.col, tile.row);
+    return snapWallPlace(this.ghost.draft(tile.col, tile.row), this.wall);
   }
 
   private validDraft(draft: FurniturePlace, skip?: FurniturePlace): boolean {
-    return canPlace(this.floor, this.furniture, draft, { skip, occupied: this.occupants() });
+    return canPlace(this.floor, this.furniture, draft, {
+      skip,
+      occupied: this.occupants(),
+      wall: this.wall,
+    });
   }
 
   private placeAtPointer(): void {
@@ -529,19 +642,23 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     this.furniture = defaultFurniture();
+    this.furniture = liftWallHangings(this.furniture, this.wall);
     this.redrawFurniture();
   }
 
   private replaceSharedFurniture(places: FurniturePlacement[]): void {
-    this.furniture = places
-      .filter((place) => CATALOG[place.item])
-      .map((place) => ({
-        id: place.id,
-        item: place.item,
-        col: place.col,
-        row: place.row,
-        facing: place.facing,
-      }));
+    this.furniture = liftWallHangings(
+      places
+        .filter((place) => CATALOG[place.item])
+        .map((place) => ({
+          id: place.id,
+          item: place.item,
+          col: place.col,
+          row: place.row,
+          facing: place.facing,
+        })),
+      this.wall,
+    );
     this.redrawFurniture(false);
   }
 
@@ -555,21 +672,42 @@ export class OfficeScene extends Phaser.Scene {
     this.walkable = this.makeWalkable(createGroundGrid());
     this.seats = listSeats(this.furniture, this.walkable);
     this.tvs = listTvs(this.furniture, this.walkable);
+    this.arcades = listArcades(this.furniture, this.walkable);
     this.tvScreens.prune(this.furniture);
     for (const [id, videoId] of this.netTvs) {
-      if (!this.tvScreens.has(id)) this.showTv(id, videoId, true);
+      if (!this.tvScreens.has(id)) this.showTv(id, videoId);
     }
-    if (this.seated && !this.seatStillExists()) this.standUp();
+    this.tvAudio.setActive(this.tvScreens.size() > 0);
+    this.rebindSeats();
     if (persist) saveOfficeFurniture(this.furniture);
   }
 
-  private seatStillExists(): boolean {
-    if (!this.seated) return false;
-    const place = this.seated.place;
-    return this.furniture.some(
-      (entry) =>
-        entry === place ||
-        (entry.item === place.item && entry.col === place.col && entry.row === place.row),
+  private rebindSeats(): void {
+    if (this.seated) {
+      const next = this.seats.find((seat) => seat.id === this.seated?.id);
+      if (next) this.seated = next;
+      else this.standUp();
+    }
+    if (this.pendingSeat) {
+      const next = this.seats.find((seat) => seat.id === this.pendingSeat?.id);
+      this.pendingSeat = next ?? null;
+    }
+  }
+
+  private takenSeatIds(): Set<string> {
+    const occupants: Array<{ x: number; y: number }> = [];
+    for (const remote of this.remotes.values()) {
+      if (remote.sitting) occupants.push({ x: remote.root.x, y: remote.root.y });
+    }
+    return occupiedSeatIds(this.seats, occupants);
+  }
+
+  private pickSeat(preferred: Seat): Seat | null {
+    return claimSeat(
+      preferred,
+      this.seats,
+      this.takenSeatIds(),
+      worldToTile(this.player.root.x, this.player.root.y),
     );
   }
 
@@ -659,7 +797,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private updateUsePrompt(): void {
-    if (this.builder.isOpen() || this.tvPanel.isOpen()) {
+    if (this.builder.isOpen() || this.tvPanel.isOpen() || this.arcadePanel.isOpen() || this.arcadeOverlay.isOpen()) {
       this.usePrompt.setVisible(false);
       return;
     }
@@ -669,12 +807,20 @@ export class OfficeScene extends Phaser.Scene {
     }
     const nearby = this.nearestUse();
     if (nearby?.kind === 'seat') {
+      if (!this.pickSeat(nearby.seat)) {
+        this.showPrompt(`Lotado · ${nearby.seat.label}`);
+        return;
+      }
       const verb = nearby.seat.use === 'sleep' ? 'Deitar' : 'Sentar';
       this.showPrompt(`E  ${verb} · ${nearby.seat.label}`);
       return;
     }
     if (nearby?.kind === 'tv') {
       this.showPrompt(`E  Assistir · ${nearby.tv.label}`);
+      return;
+    }
+    if (nearby?.kind === 'arcade') {
+      this.showPrompt(`E  Jogar · ${nearby.arcade.label}`);
       return;
     }
     this.usePrompt.setVisible(false);
@@ -687,15 +833,29 @@ export class OfficeScene extends Phaser.Scene {
       .setVisible(true);
   }
 
-  private nearestUse(): { kind: 'seat'; seat: Seat } | { kind: 'tv'; tv: TvSpot } | null {
+  private nearestUse():
+    | { kind: 'seat'; seat: Seat }
+    | { kind: 'tv'; tv: TvSpot }
+    | { kind: 'arcade'; arcade: ArcadeSpot }
+    | null {
     const tile = worldToTile(this.player.root.x, this.player.root.y);
+    const options: Array<
+      | { kind: 'seat'; seat: Seat; dist: number }
+      | { kind: 'tv'; tv: TvSpot; dist: number }
+      | { kind: 'arcade'; arcade: ArcadeSpot; dist: number }
+    > = [];
     const seat = nearestSeat(this.seats, tile);
+    if (seat) options.push({ kind: 'seat', seat, dist: distanceToPlace(tile, seat.place) });
     const tv = nearestTv(this.tvs, tile);
-    if (!seat) return tv ? { kind: 'tv', tv } : null;
-    if (!tv) return { kind: 'seat', seat };
-    return distanceToPlace(tile, tv.place) < distanceToPlace(tile, seat.place)
-      ? { kind: 'tv', tv }
-      : { kind: 'seat', seat };
+    if (tv) options.push({ kind: 'tv', tv, dist: distanceToPlace(tile, tv.place) });
+    const arcade = nearestArcade(this.arcades, tile);
+    if (arcade) options.push({ kind: 'arcade', arcade, dist: distanceToPlace(tile, arcade.place) });
+    options.sort((a, b) => a.dist - b.dist);
+    const best = options[0];
+    if (!best) return null;
+    if (best.kind === 'seat') return { kind: 'seat', seat: best.seat };
+    if (best.kind === 'tv') return { kind: 'tv', tv: best.tv };
+    return { kind: 'arcade', arcade: best.arcade };
   }
 
   private tryUse(): void {
@@ -707,34 +867,50 @@ export class OfficeScene extends Phaser.Scene {
       this.tvPanel.setOpen(false);
       return;
     }
+    if (this.arcadePanel.isOpen()) {
+      this.arcadePanel.setOpen(false);
+      return;
+    }
     const nearby = this.nearestUse();
     if (nearby?.kind === 'seat') this.useSeat(nearby.seat);
     else if (nearby?.kind === 'tv') this.useTv(nearby.tv);
+    else if (nearby?.kind === 'arcade') this.useArcade(nearby.arcade);
   }
 
   private useSeat(seat: Seat): void {
-    if (this.seated?.id === seat.id) return;
-    if (this.seated) this.standUp();
+    const target = this.pickSeat(seat);
+    if (!target) return;
+    if (this.seated?.id === target.id) return;
+
     this.pendingTv = null;
+    this.pendingArcade = null;
     this.tvPanel.setOpen(false);
+    this.arcadePanel.setOpen(false);
+
+    if (this.seated?.placeKey === target.placeKey) {
+      this.sitOn(target);
+      return;
+    }
+    if (this.seated) this.standUp();
 
     const start = worldToTile(this.player.root.x, this.player.root.y);
-    if (isNearSeat(start, seat)) {
-      this.sitOn(seat);
+    if (isNearSeat(start, target)) {
+      this.sitOn(target);
       return;
     }
 
-    const path = findPath(start, seat.approach, this.walkable);
+    const path = findPath(start, target.approach, this.walkable);
     if (!path || path.length === 0) return;
 
     const next = path[0].col === start.col && path[0].row === start.row ? path.slice(1) : path;
-    this.pendingSeat = seat;
+    this.pendingSeat = target;
     this.path = next;
-    if (this.path.length === 0) this.sitOn(seat);
+    if (this.path.length === 0) this.sitOn(target);
   }
 
   private useTv(tv: TvSpot): void {
     this.pendingSeat = null;
+    this.pendingArcade = null;
     const start = worldToTile(this.player.root.x, this.player.root.y);
     if (isNearTv(start, tv)) {
       this.openTv(tv);
@@ -750,63 +926,90 @@ export class OfficeScene extends Phaser.Scene {
     if (this.path.length === 0) this.openTv(tv);
   }
 
-  private openTv(tv: TvSpot): void {
+  private useArcade(arcade: ArcadeSpot): void {
+    this.pendingSeat = null;
     this.pendingTv = null;
+    const start = worldToTile(this.player.root.x, this.player.root.y);
+    if (isNearArcade(start, arcade)) {
+      void this.openArcade(arcade);
+      return;
+    }
+    const path = findPath(start, arcade.approach, this.walkable);
+    if (!path || path.length === 0) return;
+    const next = path[0].col === start.col && path[0].row === start.row ? path.slice(1) : path;
+    this.pendingArcade = arcade;
+    this.path = next;
+    if (this.path.length === 0) void this.openArcade(arcade);
+  }
+
+  private openTv(tv: TvSpot): void {
+    this.pendingSeat = null;
+    this.pendingTv = null;
+    this.pendingArcade = null;
     this.path = [];
     this.setBuildMode(false);
     this.hud.setCustomizerOpen(false);
+    this.arcadePanel.setOpen(false);
     this.tvPanel.open(tv);
   }
 
   private playTv(tv: TvSpot, videoId: string): void {
     this.netTvs.set(tv.id, videoId);
-    this.tvScreens.play(tv, videoId, false);
+    this.tvAudio.unmuteIntent();
+    this.tvScreens.play(tv, videoId);
+    this.tvAudio.setActive(true);
     this.presence.sendTv(tv.id, 'youtube', videoId);
   }
 
   private stopTv(tv: TvSpot): void {
     this.netTvs.delete(tv.id);
     this.tvScreens.stop(tv.id);
+    this.tvAudio.setActive(this.tvScreens.size() > 0);
     this.presence.sendTv(tv.id, null, null);
   }
 
   private replaceTvs(tvs: TvScreen[]): void {
     this.netTvs.clear();
     this.tvScreens.stopAll();
-    for (const screen of tvs) this.applyNetworkTv(screen.tvId, screen.platform, screen.videoId, true);
+    for (const screen of tvs) this.applyNetworkTv(screen.tvId, screen.platform, screen.videoId);
+    this.tvAudio.setActive(this.tvScreens.size() > 0);
   }
 
   private applyNetworkTv(
     tvId: string,
     platform: TvScreen['platform'] | null,
     videoId: string | null,
-    muted: boolean,
   ): void {
     if (!platform || !videoId) {
       this.netTvs.delete(tvId);
       this.tvScreens.stop(tvId);
+      this.tvAudio.setActive(this.tvScreens.size() > 0);
       return;
     }
     this.netTvs.set(tvId, videoId);
-    this.showTv(tvId, videoId, muted);
+    this.showTv(tvId, videoId);
   }
 
-  private showTv(tvId: string, videoId: string, muted: boolean): void {
+  private showTv(tvId: string, videoId: string): void {
     const spot = this.tvs.find((tv) => tv.id === tvId);
     if (!spot) return;
-    this.tvScreens.play(spot, videoId, muted);
+    this.tvScreens.play(spot, videoId);
+    this.tvAudio.setActive(true);
   }
 
   private sitOn(seat: Seat): void {
-    const anchor = sitAnchor(seat);
+    const target = this.pickSeat(seat);
     this.pendingSeat = null;
     this.pendingTv = null;
+    this.pendingArcade = null;
     this.path = [];
-    this.seated = seat;
-    if (seat.use === 'sleep') {
+    if (!target) return;
+    this.seated = target;
+    const anchor = sitAnchor(target);
+    if (target.use === 'sleep') {
       this.player.sleep('right', anchor.x, anchor.y, anchor.depthBias);
     } else {
-      this.player.sit(seat.facing, anchor.x, anchor.y, anchor.depthBias);
+      this.player.sit(target.facing, anchor.x, anchor.y, anchor.depthBias);
     }
     this.flushPose(true);
   }
@@ -816,6 +1019,7 @@ export class OfficeScene extends Phaser.Scene {
     this.seated = null;
     this.pendingSeat = null;
     this.pendingTv = null;
+    this.pendingArcade = null;
     this.player.stand();
     if (!seat) return;
     const spot = this.isOpen(seat.approach)
@@ -831,9 +1035,15 @@ export class OfficeScene extends Phaser.Scene {
     const goal = this.pointerTile(pointer);
     const clickedSeat = seatAt(this.seats, goal.col, goal.row);
     const clickedTv = tvAt(this.tvs, goal.col, goal.row);
+    const clickedArcade = arcadeAt(this.arcades, goal.col, goal.row);
     if (this.seated && clickedSeat?.id === this.seated.id) return;
-    if (this.seated) this.standUp();
+    if (clickedArcade) {
+      if (this.seated) this.standUp();
+      this.useArcade(clickedArcade);
+      return;
+    }
     if (clickedTv) {
+      if (this.seated) this.standUp();
       this.useTv(clickedTv);
       return;
     }
@@ -842,6 +1052,7 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
 
+    if (this.seated) this.standUp();
     const start = worldToTile(this.player.root.x, this.player.root.y);
     const path = findPath(start, goal, this.walkable);
     if (!path || path.length === 0) {
@@ -852,6 +1063,7 @@ export class OfficeScene extends Phaser.Scene {
     const next = path[0].col === start.col && path[0].row === start.row ? path.slice(1) : path;
     this.pendingSeat = null;
     this.pendingTv = null;
+    this.pendingArcade = null;
     this.path = next;
   }
 
@@ -876,6 +1088,10 @@ export class OfficeScene extends Phaser.Scene {
         }
         if (this.pendingTv) {
           this.openTv(this.pendingTv);
+          return;
+        }
+        if (this.pendingArcade) {
+          void this.openArcade(this.pendingArcade);
           return;
         }
         this.player.move(0, 0, time);
@@ -953,6 +1169,8 @@ export class OfficeScene extends Phaser.Scene {
       muted: this.voice.isMicMuted(),
       deaf: this.voice.isDeaf(),
       speaking: this.voice.isSpeaking(this.localGuestId),
+      camera: this.voice.isCameraEnabled(),
+      screen: this.voice.isScreenShareEnabled(),
     });
   }
 
@@ -973,5 +1191,211 @@ export class OfficeScene extends Phaser.Scene {
     this.player.setSpeaking(this.voice.isSpeaking(this.localGuestId));
     this.player.setMicMuted(this.voice.getStatus() === 'live' && this.voice.isMicMuted());
     this.voice.tick(places);
+    this.mediaStage.tick(this, this.voice.listTiles(), this.mediaAnchors(places));
   }
+
+  private mediaAnchors(places: Map<string, VoicePlace>): Map<string, { x: number; y: number; name: string; visible: boolean }> {
+    const local = places.get(this.localGuestId);
+    const anchors = new Map<string, { x: number; y: number; name: string; visible: boolean }>();
+    if (!local) return anchors;
+    anchors.set(this.localGuestId, {
+      x: this.player.root.x,
+      y: this.player.root.y,
+      name: this.player.displayName,
+      visible: true,
+    });
+    for (const [guestId, remote] of this.remotes) {
+      const place = places.get(guestId);
+      if (!place) continue;
+      anchors.set(guestId, {
+        x: remote.root.x,
+        y: remote.root.y,
+        name: remote.displayName,
+        visible: place.roomId === local.roomId,
+      });
+    }
+    return anchors;
+  }
+
+  private applyGameSessions(sessions: GameSessionView[]): void {
+    this.gameSessions = sessions.filter((session) => isActiveSession(session.status));
+    this.syncArcadeSession();
+  }
+
+  private upsertGameSession(session: GameSessionView | null): void {
+    if (!session) {
+      this.syncArcadeSession();
+      return;
+    }
+    if (!isActiveSession(session.status)) {
+      this.gameSessions = this.gameSessions.filter((item) => item.id !== session.id);
+    } else {
+      const index = this.gameSessions.findIndex((item) => item.id === session.id);
+      if (index >= 0) this.gameSessions[index] = session;
+      else this.gameSessions.push(session);
+    }
+    this.syncArcadeSession();
+  }
+
+  private syncArcadeSession(): void {
+    this.gameSession =
+      this.gameSessions.find((session) => session.players.some((player) => player.guestId === this.localGuestId)) ??
+      null;
+    this.arcadePanel.setSessions(this.gameSessions, this.gameSession);
+    if (!this.gameSession && this.arcadeOverlay.isOpen()) this.arcadeOverlay.close();
+    if (this.arcadeOverlay.isOpen() && this.gameSession) void this.refreshPlayConfig();
+  }
+
+  private async openArcade(_arcade: ArcadeSpot): Promise<void> {
+    this.pendingArcade = null;
+    this.path = [];
+    this.setBuildMode(false);
+    this.hud.setCustomizerOpen(false);
+    this.tvPanel.setOpen(false);
+    this.arcadePanel.setBusy(true);
+    this.arcadePanel.setError('');
+    try {
+      this.gameCatalog = await fetchGameCatalog();
+      this.applyGameSessions(await fetchGameSessions());
+      this.arcadePanel.open(this.localGuestId, this.gameCatalog, this.gameSessions, this.gameSession);
+    } catch (error) {
+      this.arcadePanel.open(this.localGuestId, this.gameCatalog, this.gameSessions, this.gameSession);
+      this.arcadePanel.setError(errorMessage(error));
+    } finally {
+      this.arcadePanel.setBusy(false);
+    }
+  }
+
+  private async createArcadeSession(gameId: string): Promise<void> {
+    await this.runArcadeAction(() => createGameSession(this.localGuestId, this.player.displayName, gameId));
+  }
+
+  private async joinArcadeSession(sessionId: string): Promise<void> {
+    await this.runArcadeAction(() => joinGameSession(sessionId, this.localGuestId, this.player.displayName));
+  }
+
+  private async watchArcadeSession(sessionId: string): Promise<void> {
+    await this.runArcadeAction(() => watchGameSession(sessionId, this.localGuestId, this.player.displayName));
+  }
+
+  private async readyArcadeSession(): Promise<void> {
+    if (!this.gameSession) return;
+    await this.runArcadeAction(() => readyGameSession(this.gameSession!.id, this.localGuestId));
+  }
+
+  private async startArcadeSession(): Promise<void> {
+    if (!this.gameSession) return;
+    await this.runArcadeAction(() => startGameSession(this.gameSession!.id, this.localGuestId));
+  }
+
+  private async leaveArcadeSession(): Promise<void> {
+    if (!this.gameSession) {
+      this.arcadePanel.setOpen(false);
+      return;
+    }
+    await this.runArcadeAction(async () => {
+      const next = await leaveGameSession(this.gameSession!.id, this.localGuestId);
+      this.arcadeOverlay.close();
+      this.stopPlayPoll();
+      return next;
+    });
+    this.arcadePanel.setOpen(false);
+  }
+
+  private async cancelArcadeSession(): Promise<void> {
+    if (!this.gameSession) return;
+    await this.runArcadeAction(() => cancelGameSession(this.gameSession!.id, this.localGuestId));
+    this.arcadeOverlay.close();
+    this.arcadePanel.setOpen(false);
+  }
+
+  private async exitArcadeOverlay(): Promise<void> {
+    const session = this.gameSession;
+    this.arcadeOverlay.close();
+    this.stopPlayPoll();
+    if (!session) return;
+    const host = session.hostGuestId === this.localGuestId;
+    try {
+      if (host && (session.status === 'playing' || session.status === 'starting')) {
+        this.upsertGameSession(await finishGameSession(session.id, this.localGuestId));
+      } else {
+        this.upsertGameSession(await leaveGameSession(session.id, this.localGuestId));
+      }
+    } catch (error) {
+      this.arcadePanel.setError(errorMessage(error));
+    }
+  }
+
+  private async openArcadeEmulator(): Promise<void> {
+    if (!this.gameSession) return;
+    this.arcadePanel.setBusy(true);
+    this.arcadePanel.setError('');
+    try {
+      const config = await fetchPlayConfig(this.gameSession.id, this.localGuestId);
+      this.arcadePanel.setOpen(false);
+      if (this.arcadeOverlay.isOpen()) this.arcadeOverlay.update(config);
+      else this.arcadeOverlay.open(config);
+      this.startPlayPoll();
+    } catch (error) {
+      this.arcadePanel.setError(errorMessage(error));
+    } finally {
+      this.arcadePanel.setBusy(false);
+    }
+  }
+
+  private async publishNetplayRoom(roomId: string): Promise<void> {
+    if (!this.gameSession) return;
+    try {
+      this.upsertGameSession(await reportNetplayRoom(this.gameSession.id, this.localGuestId, roomId));
+    } catch (error) {
+      this.arcadePanel.setError(errorMessage(error));
+    }
+  }
+
+  private async markArcadeConnected(): Promise<void> {
+    if (!this.gameSession) return;
+    try {
+      this.upsertGameSession(await markGameConnected(this.gameSession.id, this.localGuestId));
+    } catch {
+      /* o WS já atualiza o lobby */
+    }
+  }
+
+  private async refreshPlayConfig(): Promise<void> {
+    if (!this.gameSession || !this.arcadeOverlay.isOpen()) return;
+    try {
+      const config = await fetchPlayConfig(this.gameSession.id, this.localGuestId);
+      this.arcadeOverlay.update(config);
+    } catch {
+      /* ainda sem sala Netplay */
+    }
+  }
+
+  private async runArcadeAction(action: () => Promise<GameSessionView | null>): Promise<void> {
+    this.arcadePanel.setBusy(true);
+    this.arcadePanel.setError('');
+    try {
+      this.upsertGameSession(await action());
+    } catch (error) {
+      this.arcadePanel.setError(errorMessage(error));
+    } finally {
+      this.arcadePanel.setBusy(false);
+    }
+  }
+
+  private startPlayPoll(): void {
+    this.stopPlayPoll();
+    this.playPoll = window.setInterval(() => void this.refreshPlayConfig(), 800);
+  }
+
+  private stopPlayPoll(): void {
+    if (this.playPoll) window.clearInterval(this.playPoll);
+    this.playPoll = 0;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof GamesApiError) return error.message;
+  if (error instanceof Error) return error.message;
+  return 'Não deu para falar com o servidor de jogos.';
 }

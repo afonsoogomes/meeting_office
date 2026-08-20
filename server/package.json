@@ -6,6 +6,7 @@
   "scripts": {
     "start:dev": "tsx watch --include ../shared --include ../src/world src/main.ts",
     "start": "tsx src/main.ts",
+    "test": "tsx --test src/games/games.service.test.ts",
     "build": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

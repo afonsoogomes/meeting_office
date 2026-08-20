@@ -9,11 +9,17 @@ import {
   type TvPlatform,
   type TvScreen,
 } from '../../shared/protocol';
+import type { GameSessionView } from '../../shared/game-session';
 
 export type PresenceStatus = 'connecting' | 'online' | 'offline';
 
 export type PresenceHandlers = {
-  onWelcome: (peers: Peer[], tvs: TvScreen[], furniture: FurniturePlacement[]) => void;
+  onWelcome: (
+    peers: Peer[],
+    tvs: TvScreen[],
+    furniture: FurniturePlacement[],
+    games: GameSessionView[],
+  ) => void;
   onJoin: (peer: Peer) => void;
   onLeave: (guestId: string) => void;
   onState: (guestId: string, pose: Pose) => void;
@@ -21,6 +27,7 @@ export type PresenceHandlers = {
   onChat: (guestId: string, name: string, text: string) => void;
   onTv: (tvId: string, platform: TvPlatform | null, videoId: string | null) => void;
   onFurniture: (places: FurniturePlacement[]) => void;
+  onGame: (sessions: GameSessionView[]) => void;
   onStatus: (status: PresenceStatus) => void;
 };
 
@@ -103,7 +110,7 @@ export class PresenceClient {
       if (this.socket !== socket) return;
       const message = parseServerMessage(String(event.data));
       if (!message) return;
-      if (message.type === 'welcome') this.handlers.onWelcome(message.peers, message.tvs, message.furniture);
+      if (message.type === 'welcome') this.handlers.onWelcome(message.peers, message.tvs, message.furniture, message.games);
       else if (message.type === 'join') this.handlers.onJoin(message.peer);
       else if (message.type === 'leave') this.handlers.onLeave(message.guestId);
       else if (message.type === 'state') this.handlers.onState(message.guestId, message.pose);
@@ -111,6 +118,7 @@ export class PresenceClient {
       else if (message.type === 'chat') this.handlers.onChat(message.guestId, message.name, message.text);
       else if (message.type === 'tv') this.handlers.onTv(message.tvId, message.platform, message.videoId);
       else if (message.type === 'furniture') this.handlers.onFurniture(message.places);
+      else if (message.type === 'game') this.handlers.onGame(message.sessions);
     });
 
     socket.addEventListener('close', () => {

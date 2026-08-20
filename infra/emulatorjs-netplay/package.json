@@ -1,0 +1,12 @@
+{
+  "name": "meeting-office-netplay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "EmulatorJS Netplay signaling (Socket.IO). Vendored from EmulatorJS/EmulatorJS-netplay.",
+  "main": "server.js",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

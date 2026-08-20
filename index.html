@@ -24,14 +24,30 @@
         </div>
         <div class="pills">
           <button id="mic-pill" class="pill pill-muted" type="button">voz off</button>
+          <button id="cam-pill" class="pill pill-muted" type="button">câmera</button>
+          <button id="share-pill" class="pill pill-muted" type="button">tela</button>
           <button id="deaf-pill" class="pill pill-muted" type="button">som</button>
           <div id="presence-pill" class="pill pill-muted">sozinho</div>
           <div id="room-pill" class="pill">Corredor</div>
+          <div id="tv-audio" class="tv-audio hidden">
+            <button id="tv-audio-mute" class="pill pill-muted" type="button">TV mudo</button>
+            <input
+              id="tv-audio-volume"
+              class="tv-audio-slider"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="80"
+              aria-label="Volume da TV"
+            />
+          </div>
         </div>
       </header>
 
       <div id="game">
         <div id="tv-screens" aria-hidden="true"></div>
+        <div id="media-stage" aria-hidden="true"></div>
         <div id="chat-log" aria-live="polite"></div>
         <form id="chat-form" autocomplete="off">
           <input
@@ -53,6 +69,28 @@
           <div id="builder-groups" class="catalog-groups"></div>
           <div id="builder-catalog" class="catalog"></div>
           <button id="reset-furniture" type="button" class="ghost">Restaurar escritório</button>
+        </aside>
+
+        <aside id="arcade-panel" class="panel hidden" aria-label="Fliperama">
+          <div class="panel-head">
+            <h2>Fliperama</h2>
+            <button id="close-arcade" type="button" class="ghost">Fechar</button>
+          </div>
+          <p id="arcade-note" class="panel-note">Cria uma sala ou entra numa que já exista. Dá para jogar sozinho ou só assistir.</p>
+          <div id="arcade-games" class="catalog"></div>
+          <div id="arcade-rooms" class="arcade-rooms"></div>
+          <div id="arcade-players" class="arcade-players"></div>
+          <p id="arcade-error" class="tv-error hidden" role="alert"></p>
+          <div class="tv-actions arcade-actions">
+            <button id="arcade-create" type="button">Criar sala</button>
+            <button id="arcade-ready" type="button" class="hidden">Estou pronto</button>
+            <button id="arcade-start" type="button" class="hidden">Começar agora</button>
+            <button id="arcade-play" type="button" class="hidden">Abrir fliperama</button>
+          </div>
+          <div class="tv-actions arcade-actions">
+            <button id="arcade-leave-lobby" type="button" class="ghost hidden">Sair da sessão</button>
+            <button id="arcade-cancel" type="button" class="ghost hidden">Cancelar</button>
+          </div>
         </aside>
 
         <aside id="tv-panel" class="panel hidden" aria-label="TV">
@@ -89,6 +127,17 @@
         </aside>
       </div>
 
+      <div id="arcade-overlay" class="arcade-overlay hidden" aria-label="Emulador">
+        <div class="arcade-overlay-bar">
+          <div>
+            <strong id="arcade-overlay-title">Fliperama</strong>
+            <p id="arcade-overlay-slot">Player</p>
+          </div>
+          <button id="arcade-overlay-leave" type="button">Voltar ao escritório</button>
+        </div>
+        <iframe id="arcade-frame" title="EmulatorJS" allow="gamepad; fullscreen; autoplay"></iframe>
+      </div>
+
       <div id="gate" class="gate hidden" role="dialog" aria-labelledby="gate-title">
         <form id="gate-form" class="gate-card">
           <p class="gate-kicker">Meeting Office</p>
@@ -114,12 +163,13 @@
         <span><kbd>WASD</kbd> andar</span>
         <span><kbd>Shift</kbd> correr</span>
         <span><kbd>clique</kbd> andar</span>
-        <span><kbd>E</kbd> sentar / TV</span>
+        <span><kbd>E</kbd> sentar / TV / fliperama</span>
         <span><kbd>G</kbd> acenar</span>
         <span><kbd>C</kbd> avatar</span>
         <span><kbd>F</kbd> móveis</span>
         <span><kbd>Enter</kbd> falar</span>
         <span><kbd>M</kbd> mic</span>
+        <span><kbd>V</kbd> câmera</span>
         <span><kbd>K</kbd> som</span>
         <span><kbd>scroll</kbd> zoom</span>
       </footer>

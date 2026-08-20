@@ -1,8 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import type { Server } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { DEFAULT_OFFICE_SLUG } from '../../../shared/office';
 import { parseClientMessage, type ClientMessage, type FurniturePlacement } from '../../../shared/protocol';
+import { GamesService } from '../games/games.service';
 import { OfficeService } from '../office/office.service';
 import { PresenceService } from './presence.service';
 
@@ -17,6 +18,7 @@ export class PresenceSocket {
   constructor(
     @Inject(PresenceService) private readonly presence: PresenceService,
     @Inject(OfficeService) private readonly offices: OfficeService,
+    @Optional() @Inject(forwardRef(() => GamesService)) private readonly games?: GamesService | null,
   ) {}
 
   attach(server: Server): void {
@@ -40,7 +42,10 @@ export class PresenceSocket {
       this.lastTvAt.delete(socket);
       this.lastFurnitureAt.delete(socket);
       const guestId = this.presence.leave(socket);
-      if (guestId) this.presence.broadcast(guestId, { type: 'leave', guestId });
+      if (guestId) {
+        this.games?.presenceLost(guestId);
+        this.presence.broadcast(guestId, { type: 'leave', guestId });
+      }
     });
   }
 
@@ -64,6 +69,7 @@ export class PresenceSocket {
         peers: this.presence.peersExcept(peer.guestId),
         tvs: this.presence.listTvs(),
         furniture: this.offices.listFurniture(DEFAULT_OFFICE_SLUG) ?? [],
+        games: this.games?.viewOfOffice(DEFAULT_OFFICE_SLUG) ?? [],
       });
       this.presence.broadcast(peer.guestId, { type: 'join', peer });
       return;

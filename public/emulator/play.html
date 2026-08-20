@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fliperama</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0e1118;
+        color: #f7f3ea;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      #wrap {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      #display {
+        flex: 1;
+        min-height: 0;
+      }
+      #watch-shield {
+        position: absolute;
+        inset: 0;
+        z-index: 6;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 16px;
+        background: transparent;
+        color: #9aa4b8;
+        font-size: 13px;
+        pointer-events: auto;
+      }
+      #watch-shield[hidden] {
+        display: none;
+      }
+      #boot {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #0e1118;
+        z-index: 2;
+      }
+      #boot.hidden {
+        display: none;
+      }
+      button {
+        font: inherit;
+        padding: 10px 16px;
+        border-radius: 8px;
+        border: 1px solid #4c5d82;
+        background: #1c212c;
+        color: inherit;
+        cursor: pointer;
+      }
+      #status {
+        font-size: 13px;
+        color: #9aa4b8;
+        max-width: 28rem;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="display"></div>
+      <div id="watch-shield" hidden>A assistir — o teclado não controla o jogo</div>
+    </div>
+    <div id="boot">
+      <div id="status">A carregar o fliperama…</div>
+      <button id="start" type="button" hidden>Começar</button>
+    </div>
+    <script>
+      (function () {
+      const boot = document.querySelector('#boot');
+      const status = document.querySelector('#status');
+      const start = document.querySelector('#start');
+      let session = null;
+      let started = false;
+
+      window.addEventListener('message', (event) => {
+        if (event.origin !== window.location.origin) return;
+        const data = event.data;
+        if (!data || data.type !== 'office-emulator-config' || !data.config) return;
+        session = data.config;
+        if (started) {
+          if ((session.role === 'guest' || session.role === 'spectator') && session.netplayRoomId) {
+            void joinWhenReady(session);
+          }
+          return;
+        }
+        status.textContent =
+          session.role === 'spectator'
+            ? `${session.gameName} · a assistir`
+            : `${session.gameName} · você é Player ${session.playerNumber}`;
+        start.textContent = session.role === 'spectator' ? 'Assistir' : 'Começar';
+        start.hidden = false;
+      });
+
+      start.addEventListener('click', () => {
+        if (!session || started) return;
+        started = true;
+        start.hidden = true;
+        status.textContent = 'A carregar o EmulatorJS…';
+        void bootEmulator(session);
+      });
+
+      parent.postMessage({ type: 'office-emulator-ready' }, window.location.origin);
+
+      async function bootEmulator(cfg) {
+        const candidates = uniqueCdns([
+          cfg.ejsCdn,
+          'https://cdn.emulatorjs.org/latest/data/',
+          'https://cdn.emulatorjs.org/4.3.0-pre/data/',
+        ]);
+        window.EJS_player = '#display';
+        window.EJS_core = cfg.core;
+        window.EJS_gameName = cfg.gameName;
+        window.EJS_gameUrl = cfg.romUrl;
+        window.EJS_gameID = cfg.ejsGameId;
+        window.EJS_color = '#4c5d82';
+        window.EJS_startOnLoaded = true;
+        window.EJS_Buttons = {
+          netplay: cfg.role !== 'spectator',
+          playPause: true,
+          restart: cfg.role !== 'spectator',
+          mute: true,
+          settings: true,
+          fullscreen: true,
+        };
+        window.EJS_netplayServer = cfg.netplayServer || defaultNetplayServer();
+        window.EJS_netplayICEServers = cfg.iceServers;
+        window.EJS_onGameStart = () => {
+          parent.postMessage({ type: 'office-emulator-playing' }, window.location.origin);
+          void bootNetplay(cfg);
+        };
+
+        let loaded = null;
+        for (const cdn of candidates) {
+          window.EJS_pathtodata = cdn;
+          try {
+            await loadLoader(cdn);
+            loaded = cdn;
+            break;
+          } catch {
+            /* tenta o próximo mirror */
+          }
+        }
+        if (!loaded) {
+          started = false;
+          start.hidden = false;
+          status.textContent =
+            'Não deu para carregar o EmulatorJS (CDN). Confira a rede ou EJS_CDN=https://cdn.emulatorjs.org/latest/data/';
+          return;
+        }
+        boot.classList.add('hidden');
+        if (cfg.role === 'spectator') enableWatchShield();
+      }
+
+      function uniqueCdns(urls) {
+        const seen = new Set();
+        const next = [];
+        for (const raw of urls) {
+          if (typeof raw !== 'string' || raw.length === 0) continue;
+          const cdn = raw.endsWith('/') ? raw : `${raw}/`;
+          if (seen.has(cdn)) continue;
+          seen.add(cdn);
+          next.push(cdn);
+        }
+        return next;
+      }
+
+      function loadLoader(cdn) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = `${cdn}loader.js`;
+          script.onload = () => resolve(cdn);
+          script.onerror = () => {
+            script.remove();
+            reject(new Error(script.src));
+          };
+          document.body.append(script);
+        });
+      }
+
+      async function bootNetplay(cfg) {
+        const emu = await waitFor(() => window.EJS_emulator, 20000);
+        if (!emu) {
+          showNetplayHint('EmulatorJS não subiu.');
+          return;
+        }
+        const np = await waitFor(() => netplayApi(emu), 8000);
+        if (!np) {
+          showNetplayHint('Netplay indisponível nesta build — o jogo local continua.');
+          return;
+        }
+        try {
+          await ensureSocketIo();
+        } catch {
+          showNetplayHint('Socket.IO não carregou. O jogo local continua.');
+          return;
+        }
+        const server = (cfg.netplayServer || defaultNetplayServer()).replace(/\/$/, '');
+        if (!np.url) np.url = server;
+        if (emu.config && !emu.config.netplayUrl) emu.config.netplayUrl = server;
+        if (typeof np.defineNetplayFunctions === 'function') {
+          try {
+            np.defineNetplayFunctions();
+          } catch {
+            /* hook opcional */
+          }
+        }
+        np.name = cfg.playerName;
+        if (cfg.role === 'host') {
+          np.openRoom(cfg.netplayRoomName, cfg.playerCount, cfg.netplayPassword);
+          await waitFor(() => np.extra?.sessionid, 8000);
+          const roomId = np.extra?.sessionid;
+          if (typeof roomId === 'string') {
+            parent.postMessage({ type: 'office-emulator-room', roomId }, window.location.origin);
+          } else {
+            showNetplayHint('Sala Netplay não abriu (servidor :3000 a correr?). O jogo local continua.');
+          }
+          reportSlot(np, cfg);
+          return;
+        }
+        if (cfg.netplayRoomId) {
+          await joinWhenReady(cfg);
+          return;
+        }
+        parent.postMessage({ type: 'office-emulator-need-room' }, window.location.origin);
+      }
+
+      async function joinWhenReady(cfg) {
+        const emu = window.EJS_emulator;
+        const np = netplayApi(emu);
+        if (!np || !cfg.netplayRoomId) {
+          parent.postMessage({ type: 'office-emulator-need-room' }, window.location.origin);
+          return;
+        }
+        if (np.extra?.sessionid === cfg.netplayRoomId) return;
+        np.name = cfg.playerName;
+        np.joinRoom(cfg.netplayRoomId, cfg.netplayRoomName, cfg.playerCount, cfg.netplayPassword);
+        await waitFor(() => emu.isNetplay || np.players, 8000);
+        reportSlot(np, cfg);
+      }
+
+      function netplayApi(emu) {
+        if (!emu) return null;
+        const np = emu.netplay;
+        if (np && typeof np.openRoom === 'function' && typeof np.joinRoom === 'function') return np;
+        if (typeof emu.netplayOpenRoom === 'function' && typeof emu.netplayJoinRoom === 'function') {
+          return {
+            openRoom: (rn, mp, pw) => emu.netplayOpenRoom(rn, mp, pw),
+            joinRoom: (sid, rn, mp, pw) => emu.netplayJoinRoom(sid, rn, mp, pw),
+            getUserIndex: () => (typeof emu.netplayGetUserIndex === 'function' ? emu.netplayGetUserIndex() : 0),
+            extra: emu.netplay && emu.netplay.extra,
+            get name() {
+              return emu.netplay && emu.netplay.name;
+            },
+            set name(value) {
+              emu.netplay = emu.netplay || {};
+              emu.netplay.name = value;
+            },
+            get url() {
+              return emu.netplay && emu.netplay.url;
+            },
+            set url(value) {
+              emu.netplay = emu.netplay || {};
+              emu.netplay.url = value;
+            },
+            defineNetplayFunctions: () => emu.defineNetplayFunctions && emu.defineNetplayFunctions(),
+          };
+        }
+        return null;
+      }
+
+      function reportSlot(np, cfg) {
+        if (cfg.role === 'spectator') {
+          parent.postMessage(
+            { type: 'office-emulator-slot', index: -1, expected: -1, message: 'A assistir' },
+            window.location.origin,
+          );
+          return;
+        }
+        const index = typeof np.getUserIndex === 'function' ? np.getUserIndex() : cfg.role === 'host' ? 0 : 1;
+        parent.postMessage(
+          { type: 'office-emulator-slot', index, expected: cfg.playerNumber - 1 },
+          window.location.origin,
+        );
+      }
+
+      function enableWatchShield() {
+        const shield = document.querySelector('#watch-shield');
+        if (!(shield instanceof HTMLElement)) return;
+        shield.hidden = false;
+        shield.tabIndex = 0;
+        shield.focus();
+        const block = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        };
+        window.addEventListener('keydown', block, true);
+        window.addEventListener('keyup', block, true);
+      }
+
+      function showNetplayHint(message) {
+        parent.postMessage({ type: 'office-emulator-slot', index: -1, expected: 0, message }, window.location.origin);
+      }
+
+      function ensureSocketIo() {
+        if (typeof window.io === 'function') return Promise.resolve();
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.socket.io/4.8.1/socket.io.min.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('socket.io'));
+          document.head.append(script);
+        });
+      }
+
+      function defaultNetplayServer() {
+        return `${location.protocol}//${location.hostname}:3000`;
+      }
+
+      function waitFor(probe, timeout) {
+        const startedAt = Date.now();
+        return new Promise((resolve) => {
+          const tick = () => {
+            const value = probe();
+            if (value) {
+              resolve(value);
+              return;
+            }
+            if (Date.now() - startedAt > timeout) {
+              resolve(null);
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          tick();
+        });
+      }
+      })();
+    </script>
+  </body>
+</html>

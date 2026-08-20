@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { TILE_SIZE, TILESET_SCALE } from './constants';
+import { TILE_SIZE, TILESET_SCALE, WALLPAPER_TILES } from './constants';
 import {
   FURNITURE_SLICES,
   GENERATED_CATALOG,
@@ -8,9 +8,9 @@ import {
   type FurnitureSlice,
 } from './furnitureData';
 
-export type FurnitureLayer = 'floor' | 'object';
+export type FurnitureLayer = 'floor' | 'object' | 'wall';
 export type FurnitureFacing = 'down' | 'up' | 'left' | 'right';
-export type FurnitureUse = 'sit' | 'sleep' | 'watch';
+export type FurnitureUse = 'sit' | 'sleep' | 'watch' | 'play';
 export type FurnitureKind = CatalogEntry;
 export type { FurnitureGroup };
 
@@ -95,10 +95,40 @@ const EXTRAS: CatalogEntry[] = [
     use: 'watch',
     sprites: { down: 'tv' },
   },
+  {
+    id: 'arcade',
+    label: 'Fliperama',
+    group: 'decor',
+    w: 1,
+    h: 1,
+    collide: true,
+    layer: 'object',
+    use: 'play',
+    sprites: { down: 'arcade' },
+  },
+  {
+    id: 'arcade-junimo',
+    label: 'Fliperama Junimo',
+    group: 'decor',
+    w: 1,
+    h: 1,
+    collide: true,
+    layer: 'object',
+    use: 'play',
+    sprites: { down: 'arcade-junimo' },
+  },
 ];
 
+function isWallHangingEntry(item: { id: string; group?: string; layer?: string }): boolean {
+  if (item.layer === 'wall' || item.group === 'wall') return true;
+  return item.id.includes('wall') || item.id.includes('decal');
+}
+
 export const CATALOG: Record<string, FurnitureKind> = Object.fromEntries(
-  [...EXTRAS, ...GENERATED_CATALOG].map((item) => [item.id, item]),
+  [...EXTRAS, ...GENERATED_CATALOG].map((item) => {
+    const kind = isWallHangingEntry(item) ? { ...item, layer: 'wall' as const, collide: false } : item;
+    return [kind.id, kind];
+  }),
 );
 
 const SLICE_BY_KEY: Record<string, FurnitureSlice> = Object.fromEntries(
@@ -123,6 +153,12 @@ export function furnitureKind(id: string): FurnitureKind {
   const kind = CATALOG[id];
   if (!kind) throw new Error(`Unknown furniture: ${id}`);
   return kind;
+}
+
+export function hangsOnWall(target: string | FurniturePlace | FurnitureKind): boolean {
+  if (typeof target === 'string') return CATALOG[target]?.layer === 'wall' || isWallHangingEntry({ id: target });
+  if ('group' in target) return target.layer === 'wall';
+  return hangsOnWall(target.item);
 }
 
 export function catalogList(): FurnitureKind[] {
@@ -171,6 +207,27 @@ export function placedSize(place: FurniturePlace): { w: number; h: number } {
   return { w: kind.w, h: kind.h };
 }
 
+export function furniturePlaceKey(place: FurniturePlace): string {
+  return place.id ?? `${place.item}:${place.col},${place.row}`;
+}
+
+/** How many people can sit or sleep on this placement. */
+export function occupantSlots(place: FurniturePlace): number {
+  const kind = furnitureKind(place.item);
+  if (kind.use === 'sleep') {
+    if (kind.slots != null) return Math.max(1, kind.slots);
+    return kind.w >= 3 ? 2 : 1;
+  }
+  if (kind.use !== 'sit') return 0;
+  if (kind.slots != null) {
+    const size = placedSize(place);
+    if (kind.w <= 1) return Math.max(1, kind.slots);
+    return Math.max(1, Math.round((kind.slots * size.w) / kind.w));
+  }
+  if (!kind.side && kind.w >= 2) return 1;
+  return Math.max(1, placedSize(place).w);
+}
+
 export function footprintCells(place: FurniturePlace): Array<{ col: number; row: number }> {
   const size = placedSize(place);
   const cells: Array<{ col: number; row: number }> = [];
@@ -203,12 +260,12 @@ export function collisionCells(place: FurniturePlace): Array<{ col: number; row:
   return cells;
 }
 
-/** Bottom-center of the footprint — sprite origin (0.5, 1). */
+/** Bottom-center of the footprint — sprite origin (0.5, 1). Wall pieces sit on the wallpaper, slightly off the floor line. */
 export function furnitureOrigin(place: FurniturePlace): { x: number; y: number } {
   const size = placedSize(place);
   return {
     x: place.col * TILE_SIZE + (size.w * TILE_SIZE) / 2,
-    y: (place.row + size.h) * TILE_SIZE,
+    y: (place.row + size.h) * TILE_SIZE + (hangsOnWall(place) ? -6 : 0),
   };
 }
 
@@ -225,6 +282,8 @@ export function spriteFor(place: FurniturePlace): { key: string; flipX: boolean 
 export type PlaceOpts = {
   skip?: FurniturePlace;
   occupied?: Array<{ col: number; row: number }>;
+  /** Wallpaper tiles (`role === 'back'`). Required to hang wall pieces. */
+  wall?: boolean[][];
 };
 
 export function canPlace(
@@ -235,15 +294,18 @@ export function canPlace(
 ): boolean {
   const kind = CATALOG[draft.item];
   if (!kind) return false;
+  const hang = hangsOnWall(kind);
+  const support = hang ? opts.wall : floor;
+  if (!support) return false;
   const cells = footprintCells(draft);
   for (const cell of cells) {
-    if (cell.row < 0 || cell.col < 0 || cell.row >= floor.length || cell.col >= floor[0].length) {
+    if (cell.row < 0 || cell.col < 0 || cell.row >= support.length || cell.col >= support[0].length) {
       return false;
     }
-    if (!floor[cell.row][cell.col]) return false;
+    if (!support[cell.row][cell.col]) return false;
   }
   const { skip, occupied } = opts;
-  if (kind.collide && occupied) {
+  if (!hang && kind.collide && occupied) {
     const skipKeys = skip
       ? new Set(footprintCells(skip).map((cell) => `${cell.col},${cell.row}`))
       : null;
@@ -255,6 +317,12 @@ export function canPlace(
   }
   for (const other of places) {
     if (other === skip) continue;
+    const otherHang = hangsOnWall(other.item);
+    if (hang !== otherHang) continue;
+    if (hang) {
+      if (overlaps(draft, other)) return false;
+      continue;
+    }
     if (kind.layer === 'floor' && furnitureKind(other.item).layer === 'floor') {
       if (overlaps(draft, other)) return false;
       continue;
@@ -269,12 +337,52 @@ function overlaps(a: FurniturePlace, b: FurniturePlace): boolean {
   return footprintCells(b).some((cell) => left.has(`${cell.col},${cell.row}`));
 }
 
+export function onWallTiles(place: FurniturePlace, wall: boolean[][]): boolean {
+  return footprintCells(place).every((cell) => Boolean(wall[cell.row]?.[cell.col]));
+}
+
+/** If the pointer is on the floor, hang the piece on the wallpaper north of that column. */
+export function snapWallPlace(place: FurniturePlace, wall: boolean[][]): FurniturePlace {
+  if (!hangsOnWall(place) || onWallTiles(place, wall)) return place;
+  for (let dy = 1; dy <= WALLPAPER_TILES + 3; dy += 1) {
+    const lifted = { ...place, row: place.row - dy };
+    if (onWallTiles(lifted, wall)) return lifted;
+  }
+  return place;
+}
+
+export function liftWallHangings(places: FurniturePlace[], wall: boolean[][]): FurniturePlace[] {
+  return places.map((place) => snapWallPlace(place, wall));
+}
+
 export function furnitureAt(places: FurniturePlace[], col: number, row: number): FurniturePlace | null {
   for (let i = places.length - 1; i >= 0; i -= 1) {
     const place = places[i];
-    if (footprintCells(place).some((cell) => cell.col === col && cell.row === row)) return place;
+    if (hitCells(place).some((cell) => cell.col === col && cell.row === row)) return place;
   }
   return null;
+}
+
+/** Footprint plus the wallpaper tiles the sprite covers, so clicking a painting still selects it. */
+function hitCells(place: FurniturePlace): Array<{ col: number; row: number }> {
+  const cells = footprintCells(place);
+  if (!hangsOnWall(place)) return cells;
+  const size = placedSize(place);
+  const { key } = spriteFor(place);
+  const slice = SLICE_BY_KEY[key];
+  const spriteTiles = slice ? Math.max(1, Math.ceil((slice.h * TILESET_SCALE) / TILE_SIZE)) : size.h;
+  const extra = Math.max(0, spriteTiles - size.h);
+  const seen = new Set(cells.map((cell) => `${cell.col},${cell.row}`));
+  for (let dr = 1; dr <= extra; dr += 1) {
+    for (let dc = 0; dc < size.w; dc += 1) {
+      const cell = { col: place.col + dc, row: place.row + size.h - 1 - dr };
+      const keyCell = `${cell.col},${cell.row}`;
+      if (seen.has(keyCell)) continue;
+      seen.add(keyCell);
+      cells.push(cell);
+    }
+  }
+  return cells;
 }
 
 export function blockWalkable(walkable: boolean[][], places: FurniturePlace[]): void {
@@ -289,10 +397,11 @@ export function blockWalkable(walkable: boolean[][], places: FurniturePlace[]): 
 }
 
 export function drawFurniture(scene: Phaser.Scene, places: FurniturePlace[]): Phaser.GameObjects.Image[] {
+  const order: Record<FurnitureLayer, number> = { floor: 0, wall: 1, object: 2 };
   const drawn = [...places].sort((a, b) => {
     const ka = furnitureKind(a.item);
     const kb = furnitureKind(b.item);
-    if (ka.layer !== kb.layer) return ka.layer === 'floor' ? -1 : 1;
+    if (ka.layer !== kb.layer) return order[ka.layer] - order[kb.layer];
     const sa = placedSize(a);
     const sb = placedSize(b);
     return a.row + sa.h - (b.row + sb.h) || a.col - b.col;
@@ -303,8 +412,8 @@ export function drawFurniture(scene: Phaser.Scene, places: FurniturePlace[]): Ph
     const kind = furnitureKind(place.item);
     const { x, y } = furnitureOrigin(place);
     const { key, flipX } = spriteFor(place);
-    const depth = kind.layer === 'floor' ? 1 : y;
     const origin = spriteAnchor(place, key);
+    const depth = kind.layer === 'floor' ? 1 : kind.layer === 'wall' ? 4 : y;
     images.push(
       scene.add
         .image(x, y, key)

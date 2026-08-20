@@ -3,11 +3,21 @@ import {
   Room,
   RoomEvent,
   Track,
-  type RemoteTrack,
+  VideoPresets,
+  type RemoteTrackPublication,
 } from 'livekit-client';
 import { voiceGain, type VoicePlace } from '../audio/spatial';
 
 export type VoiceStatus = 'off' | 'connecting' | 'live';
+
+export type MediaKind = 'camera' | 'screen';
+
+export type MediaTile = {
+  guestId: string;
+  kind: MediaKind;
+  element: HTMLVideoElement;
+  local: boolean;
+};
 
 type VoiceSession = {
   url: string;
@@ -17,13 +27,18 @@ type VoiceSession = {
 export class VoiceClient {
   private readonly room = new Room({
     dynacast: true,
+    adaptiveStream: true,
     audioCaptureDefaults: {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
     },
+    videoCaptureDefaults: {
+      resolution: VideoPresets.h360.resolution,
+    },
   });
-  private readonly sounds = new Map<string, HTMLAudioElement>();
+  private readonly audios = new Map<string, { guestId: string; element: HTMLAudioElement }>();
+  private readonly tiles = new Map<string, MediaTile>();
   private readonly speaking = new Set<string>();
   private readonly remoteMuted = new Set<string>();
   private localId = '';
@@ -33,11 +48,20 @@ export class VoiceClient {
   private status: VoiceStatus = 'off';
 
   constructor(private readonly onChange: () => void) {
-    this.room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-      this.attach(track, participant.identity);
+    this.room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      this.attach(track, pub.source, participant.identity, false);
     });
-    this.room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
-      this.detach(track, participant.identity);
+    this.room.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
+      this.detach(track, pub.source, participant.identity);
+    });
+    this.room.on(RoomEvent.LocalTrackPublished, (pub) => {
+      if (pub.track) this.attach(pub.track, pub.source, this.localId, true);
+      this.onChange();
+    });
+    this.room.on(RoomEvent.LocalTrackUnpublished, (pub) => {
+      if (pub.track) this.detach(pub.track, pub.source, this.localId);
+      else this.dropByKey(mediaKey(this.localId, kindFromSource(pub.source) ?? pub.source));
+      this.onChange();
     });
     this.room.on(RoomEvent.TrackMuted, (_pub, participant) => this.refreshMuted(participant.identity));
     this.room.on(RoomEvent.TrackUnmuted, (_pub, participant) => this.refreshMuted(participant.identity));
@@ -45,6 +69,7 @@ export class VoiceClient {
     this.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       this.remoteMuted.delete(participant.identity);
       this.speaking.delete(participant.identity);
+      this.dropParticipant(participant.identity);
       this.onChange();
     });
     this.room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
@@ -53,13 +78,11 @@ export class VoiceClient {
       this.onChange();
     });
     this.room.on(RoomEvent.Disconnected, () => {
-      this.dropSounds();
+      this.dropAll();
       if (!this.closed) this.setStatus('off');
     });
     this.room.on(RoomEvent.Reconnecting, () => this.setStatus('connecting'));
     this.room.on(RoomEvent.Reconnected, () => this.setStatus('live'));
-    this.room.on(RoomEvent.LocalTrackPublished, () => this.onChange());
-    this.room.on(RoomEvent.LocalTrackUnpublished, () => this.onChange());
     this.room.on(RoomEvent.MediaDevicesError, () => this.onChange());
   }
 
@@ -76,12 +99,26 @@ export class VoiceClient {
     return !this.room.localParticipant.isMicrophoneEnabled;
   }
 
+  isCameraEnabled(): boolean {
+    if (this.room.state !== ConnectionState.Connected) return false;
+    return this.room.localParticipant.isCameraEnabled;
+  }
+
+  isScreenShareEnabled(): boolean {
+    if (this.room.state !== ConnectionState.Connected) return false;
+    return this.room.localParticipant.isScreenShareEnabled;
+  }
+
   isSpeaking(guestId: string): boolean {
     return this.speaking.has(guestId);
   }
 
   isRemoteMuted(guestId: string): boolean {
     return this.remoteMuted.has(guestId);
+  }
+
+  listTiles(): MediaTile[] {
+    return [...this.tiles.values()];
   }
 
   prepare(guestId: string, name: string): void {
@@ -116,12 +153,33 @@ export class VoiceClient {
   }
 
   async toggleMute(): Promise<void> {
-    if (this.room.state !== ConnectionState.Connected && this.localId) {
-      await this.connect(this.localId, this.localName);
-    }
-    if (this.room.state !== ConnectionState.Connected) return;
+    if (!(await this.ensureLive())) return;
     try {
       await this.room.localParticipant.setMicrophoneEnabled(this.isMicMuted());
+    } catch {
+      return;
+    }
+    this.onChange();
+  }
+
+  async toggleCamera(): Promise<void> {
+    if (!(await this.ensureLive())) return;
+    try {
+      await this.room.localParticipant.setCameraEnabled(!this.isCameraEnabled());
+    } catch {
+      return;
+    }
+    this.onChange();
+  }
+
+  async toggleScreenShare(): Promise<void> {
+    if (!(await this.ensureLive())) return;
+    try {
+      await this.room.localParticipant.setScreenShareEnabled(!this.isScreenShareEnabled(), {
+        audio: true,
+        resolution: { width: 1920, height: 1080, frameRate: 15 },
+        surfaceSwitching: 'include',
+      });
     } catch {
       return;
     }
@@ -136,9 +194,10 @@ export class VoiceClient {
   tick(places: Map<string, VoicePlace>): void {
     const local = places.get(this.localId);
     if (!local) return;
-    for (const [guestId, element] of this.sounds) {
+    this.syncSubscriptions(places, local.roomId);
+    for (const { guestId, element } of this.audios.values()) {
       const remote = places.get(guestId);
-      const gain = remote ? voiceGain(local, remote) : 0;
+      const gain = guestId === this.localId ? 0 : remote ? voiceGain(local, remote) : 0;
       element.volume = this.deaf ? 0 : gain;
       element.muted = this.deaf || gain <= 0.001;
     }
@@ -146,32 +205,102 @@ export class VoiceClient {
 
   disconnect(): void {
     this.closed = true;
-    this.dropSounds();
+    this.dropAll();
     this.room.disconnect();
     this.setStatus('off');
   }
 
-  private attach(track: RemoteTrack, guestId: string): void {
-    if (track.kind !== Track.Kind.Audio) return;
-    this.detach(track, guestId);
+  private async ensureLive(): Promise<boolean> {
+    if (this.room.state !== ConnectionState.Connected && this.localId) {
+      await this.connect(this.localId, this.localName);
+    }
+    return this.room.state === ConnectionState.Connected;
+  }
+
+  private syncSubscriptions(places: Map<string, VoicePlace>, localRoom: string): void {
+    for (const participant of this.room.remoteParticipants.values()) {
+      const same = places.get(participant.identity)?.roomId === localRoom;
+      for (const pub of participant.trackPublications.values()) {
+        if (!isRoomVideo(pub)) continue;
+        if (pub.isSubscribed === same || !('setSubscribed' in pub)) continue;
+        void (pub as RemoteTrackPublication).setSubscribed(same);
+      }
+    }
+  }
+
+  private attach(track: Track, source: Track.Source, guestId: string, local: boolean): void {
+    if (track.kind === Track.Kind.Audio) {
+      this.attachAudio(track, source, guestId);
+      return;
+    }
+    if (track.kind === Track.Kind.Video) this.attachVideo(track, source, guestId, local);
+  }
+
+  private detach(track: Track, source: Track.Source, guestId: string): void {
+    track.detach();
+    const kind = kindFromSource(source);
+    if (kind) this.dropByKey(mediaKey(guestId, kind));
+    else this.dropByKey(mediaKey(guestId, source));
+  }
+
+  private attachAudio(track: Track, source: Track.Source, guestId: string): void {
+    const key = mediaKey(guestId, source);
+    this.dropByKey(key);
     const element = track.attach();
     if (!(element instanceof HTMLAudioElement)) {
       track.detach();
       return;
     }
-    element.setAttribute('data-voice', guestId);
+    element.setAttribute('data-voice', key);
     element.autoplay = true;
     element.setAttribute('playsinline', 'true');
     element.style.display = 'none';
     document.body.append(element);
-    this.sounds.set(guestId, element);
+    this.audios.set(key, { guestId, element });
   }
 
-  private detach(track: RemoteTrack, guestId: string): void {
-    track.detach();
-    const element = this.sounds.get(guestId);
-    element?.remove();
-    this.sounds.delete(guestId);
+  private attachVideo(track: Track, source: Track.Source, guestId: string, local: boolean): void {
+    const kind = kindFromSource(source);
+    if (!kind) return;
+    const key = mediaKey(guestId, kind);
+    this.dropByKey(key);
+    const element = track.attach();
+    if (!(element instanceof HTMLVideoElement)) {
+      track.detach();
+      return;
+    }
+    element.autoplay = true;
+    element.playsInline = true;
+    element.muted = true;
+    element.setAttribute('data-media', key);
+    this.tiles.set(key, { guestId, kind, element, local });
+    this.onChange();
+  }
+
+  private dropByKey(key: string): void {
+    const audio = this.audios.get(key);
+    if (audio) {
+      audio.element.remove();
+      this.audios.delete(key);
+    }
+    const tile = this.tiles.get(key);
+    if (tile) {
+      tile.element.remove();
+      this.tiles.delete(key);
+    }
+  }
+
+  private dropParticipant(guestId: string): void {
+    for (const key of [...this.audios.keys(), ...this.tiles.keys()]) {
+      if (key.startsWith(`${guestId}|`)) this.dropByKey(key);
+    }
+  }
+
+  private dropAll(): void {
+    for (const { element } of this.audios.values()) element.remove();
+    this.audios.clear();
+    for (const tile of this.tiles.values()) tile.element.remove();
+    this.tiles.clear();
   }
 
   private refreshMuted(identity: string): void {
@@ -186,15 +315,24 @@ export class VoiceClient {
     this.onChange();
   }
 
-  private dropSounds(): void {
-    for (const element of this.sounds.values()) element.remove();
-    this.sounds.clear();
-  }
-
   private setStatus(status: VoiceStatus): void {
     this.status = status;
     this.onChange();
   }
+}
+
+function mediaKey(guestId: string, source: string): string {
+  return `${guestId}|${source}`;
+}
+
+function kindFromSource(source: Track.Source): MediaKind | null {
+  if (source === Track.Source.Camera) return 'camera';
+  if (source === Track.Source.ScreenShare) return 'screen';
+  return null;
+}
+
+function isRoomVideo(pub: { kind: Track.Kind; source: Track.Source }): boolean {
+  return pub.kind === Track.Kind.Video || pub.source === Track.Source.ScreenShareAudio;
 }
 
 async function fetchSession(guestId: string, name: string): Promise<VoiceSession> {

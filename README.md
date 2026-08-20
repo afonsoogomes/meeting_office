@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Sobe o Vite em `http://localhost:5173`, a API Nest em `http://localhost:8787` (WebSocket em `/ws`) e o LiveKit em `ws://127.0.0.1:7880` (Docker, ou `livekit-server --dev` se o binário estiver no PATH). Duas abas no mesmo URL já se veem e, no mesmo cômodo, se ouvem. Sem Docker/LiveKit o escritório continua jogável; o pill fica **voz off**.
+Sobe o Vite em `http://localhost:5173`, a API Nest em `http://localhost:8787` (WebSocket em `/ws`) , o LiveKit em `ws://127.0.0.1:7880` e o Netplay do EmulatorJS em `http://127.0.0.1:3000` (Docker). Duas abas no mesmo URL já se veem e, no mesmo cômodo, se ouvem. Sem Docker o escritório continua jogável; voz e SNES online ficam off.
 
 Na mesma rede, o Vite imprime um endereço **Network**. A voz nesse caso precisa de `LIVEKIT_PUBLIC_URL=ws://SEU_IP:7880` no servidor e `--node-ip` com o mesmo IP no LiveKit.
 
@@ -24,11 +24,13 @@ O mapa e os móveis iniciais vêm do Nest (`GET /offices/default`, SQLite em `se
 | `WASD` ou setas | Andar (4 direções) |
 | `Shift` | Correr (segurar) |
 | Clique | Andar até o tile (Shift também corre) |
-| `E` | Sentar / levantar / deitar, ou abrir a TV (cola um link do YouTube) |
+| `E` | Sentar / levantar / deitar, abrir a TV, ou jogar no fliperama (SNES) |
 | `G` | Acenar |
 | `C` | Abrir customização do avatar |
 | `Enter` | Falar (chat no estilo Habbo) |
 | `M` | Ligar / mutar o microfone |
+| `V` | Ligar / desligar a câmera |
+| Pill **tela** | Compartilhar a tela (o browser pede a janela) |
 | `K` | Ensurdecer / ouvir de novo |
 | `F` | Modo móveis (colocar / girar / apagar) |
 | `R` / scroll | No modo móveis, girar a peça na mão |
@@ -46,15 +48,19 @@ O mapa e os móveis iniciais vêm do Nest (`GET /offices/default`, SQLite em `se
 - Avatar persistido no `localStorage` (nome + `guestId` + aparência)
 - Gate de nome na primeira visita
 - Presença em tempo real: outras pessoas aparecem andando, sentando e acenando
+- Sofá, banco e cama de casal têm vários lugares: cada pessoa ocupa um slot; o mesmo lugar não aceita duas
 - Chat compartilhado (histórico fixo + balão em cima da cabeça)
 - Layout de móveis compartilhado: quem coloca/gira/apaga no modo `F` grava no SQLite e aparece para todo mundo
 - Catálogo de ~330 móveis (cadeiras, mesas, sofás, tapetes, quadros, camas…)
+- Quadros, janelas e arandelas penduram no papel da parede norte; não ocupam o chão
 - TV com YouTube: `E` na TV, escolhe a plataforma, cola o link; quem entra na sala vê o mesmo vídeo
+- Fliperama SNES: `E` na máquina, lobby P1/P2 no Nest, EmulatorJS + Netplay self-hosted (WebRTC). ROMs em `server/data/roms/` — nada comercial no git. Detalhe: [docs/games/NETPLAY.md](docs/games/NETPLAY.md)
 - Voz por cômodo (LiveKit): quem está na mesma sala ouve em volume cheio; outra sala é outro canal. `M` mic, `K` som
+- Câmera e compartilhar tela (LiveKit): bolha no avatar e painel da tela, só no mesmo cômodo. Pill **câmera** / **tela**, atalho `V`
 
 ## Ainda não entra nesta versão
 
-Contas, um escritório por pessoa, vídeo na bolha do avatar, TURN para NAT difícil, e outras plataformas na TV (Vimeo, Twitch).
+Contas, um escritório por pessoa, TURN para NAT difícil, e outras plataformas na TV (Vimeo, Twitch). SNES extra além do catálogo em `shared/game-catalog.ts`.
 
 ## Deploy (VPS)
 

@@ -63,11 +63,13 @@ O modo **F** lista ~330 peças em abas (assentos, mesas, armários, cozinha, pla
 ...tableSet(29, 8)  // mesa 4×1 + 4 cadeiras (cada uma para a mesa)
 ```
 
-Cadeira, poltrona e sofá têm `use: 'sit'` no catálogo. O jogador clica no móvel ou aperta `E` ao lado: anda até a frente do assento e senta. `WASD` ou `E` de novo levanta. Outras ações no futuro entram no mesmo campo `use`.
+Cadeira, poltrona e sofá têm `use: 'sit'` no catálogo. Sofá e banco geram **um slot por tile de largura** (sofá 3×1 = 3 lugares; de lado 2×1 = 2). Poltrona larga (2 tiles, sem variante `side`) é 1 lugar. Cama simples 1 lugar, cama de casal 2. O jogador clica no móvel ou aperta `E` ao lado: anda até a frente do **slot** e senta/deita nele. Slot ocupado por outra pessoa não aceita mais ninguém; se o móvel ainda tiver vaga, a pessoa vai para o slot livre mais perto. `WASD` ou `E` de novo levanta.
+
+Peças de **parede** (quadros, janelas, arandelas, decalques, plantas de parede) têm `layer: 'wall'`. No modo `F` elas só encaixam no papel norte do cômodo (`role === 'back'`): clique no papel para escolher a altura, ou no chão da mesma coluna que a peça sobe sozinha para a parede. Não ocupam piso nem bloqueiam passagem; podem coexistir com uma mesa encostada na parede.
 
 Móveis altos (`fridge`, `tv`, `bookshelf`) ficam na **primeira linha do piso**; a sprite sobe por cima do papel sozinha.
 
-No jogo, `F` abre o catálogo. O preview segue o mouse (encaixado no tile noroeste). Clique esquerdo coloca se `canPlace(floor, places, draft)` for verdadeiro — só em células `role === 'floor'` (não parede, porta ou escada), sem sobrepor móveis com colisão. `R`, scroll ou clique direito gira; sofá de lado vira 2×1. `X` apaga a peça sob o cursor. O layout fica em `localStorage` (`meeting-office-furniture-v1`); Restaurar volta ao `OFFICE_HOUSE.furniture`.
+No jogo, `F` abre o catálogo. O preview segue o mouse (encaixado no tile noroeste). Clique esquerdo coloca se `canPlace` for verdadeiro — chão para móveis, papel norte para quadros — sem sobrepor outra peça da mesma camada. `R`, scroll ou clique direito gira; sofá de lado vira 2×1. `X` apaga a peça sob o cursor.
 
 ## 5. Ligar no jogo
 

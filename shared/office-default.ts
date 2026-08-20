@@ -116,6 +116,7 @@ export const DEFAULT_OFFICE_FURNITURE: SeedFurniture[] = [
   { item: 'rug', col: 10, row: 26 },
   { item: 'plant', col: 5, row: 23 },
   { item: 'plant-fern', col: 20, row: 23 },
+  { item: 'arcade', col: 20, row: 28 },
   { item: 'fridge', col: 24, row: 23 },
   { item: 'stove', col: 25, row: 23 },
   { item: 'sink', col: 26, row: 23 },

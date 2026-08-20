@@ -520,6 +520,9 @@ def main() -> None:
         use = "sit" if typ in SIT_TYPES else "sleep" if typ in SLEEP_TYPES else None
         group = group_for(typ, entry["name"])
         label = label_for(entry["name"], used_labels)
+        if typ in WALL_TYPES or group == "wall" or "wall" in item_id or "decal" in item_id:
+            layer = "wall"
+            collide = False
 
         items.append(
             {
@@ -571,7 +574,7 @@ def main() -> None:
         "  w: number;",
         "  h: number;",
         "  collide: boolean;",
-        "  layer: 'floor' | 'object';",
+        "  layer: 'floor' | 'object' | 'wall';",
         "  use?: 'sit' | 'sleep';",
         "  side?: { w: number; h: number };",
         "  sprites: { down: string; right?: string; up?: string };",

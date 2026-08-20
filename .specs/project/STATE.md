@@ -1,11 +1,25 @@
 # State
 
 **Last Updated:** 2026-08-19
-**Current Work:** voz por proximidade (LiveKit)
+**Current Work:** fliperama SNES (EmulatorJS Netplay)
 
 ---
 
 ## Recent Decisions (Last 60 days)
+
+### AD-007: SNES via EmulatorJS WebRTC, não RetroArch lockstep (2026-08-19)
+
+**Decision:** Sessão/P1/P2 no Nest (`guestId`). EmulatorJS iframe + servidor Socket.IO vendored. Host = quem abre a sala Netplay = Player 1.
+**Reason:** EmulatorJS não expõe netplay Libretro TCP; guests recebem stream de vídeo.
+**Trade-off:** CDN `main` (stable 4.2.3 sem API). TURN só se NAT ruim.
+**Impact:** ROM fora do git (`server/data/roms/`). Várias salas por office; espectador entra no Netplay depois dos jogadores.
+
+### AD-008: Salas paralelas, solo e espectador (2026-08-19)
+
+**Decision:** `minPlayers: 1`; várias `GameSession` ativas; role `spectator` sem lugar P1–P4. EJS room cap = maxPlayers + 8.
+**Reason:** Querer jogar sozinho, dois grupos no mesmo jogo, e assistir o stream do host.
+**Trade-off:** EmulatorJS não tem watch nativo; o espectador é um peer extra com teclado bloqueado, só depois de todos os jogadores `connected`.
+**Impact:** WS `games[]` em vez de uma sessão; `POST /games/sessions/:id/watch`.
 
 ### AD-006: Voz via LiveKit SFU (2026-08-19)
 

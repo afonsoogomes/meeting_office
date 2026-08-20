@@ -15,5 +15,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "../shared", "../src/world/furnitureData.ts"]
+  "include": ["src", "../shared", "../src/world/furnitureData.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

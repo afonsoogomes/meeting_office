@@ -7,10 +7,12 @@
     "server"
   ],
   "scripts": {
-    "dev": "concurrently -n client,server,livekit -c cyan,magenta,yellow \"vite\" \"npm run start:dev -w meeting-office-server\" \"node scripts/start-livekit.mjs\"",
+    "dev": "concurrently -n client,server,livekit,netplay -c cyan,magenta,yellow,green \"vite\" \"npm run start:dev -w meeting-office-server\" \"node scripts/start-livekit.mjs\" \"node scripts/start-netplay.mjs\"",
     "dev:client": "vite",
     "dev:server": "npm run start:dev -w meeting-office-server",
     "dev:livekit": "node scripts/start-livekit.mjs",
+    "dev:netplay": "node scripts/start-netplay.mjs",
+    "test": "npm test -w meeting-office-server",
     "build": "tsc --noEmit && vite build && npm run build -w meeting-office-server",
     "preview": "vite preview"
   },

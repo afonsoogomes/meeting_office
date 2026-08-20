@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { youtubeEmbedUrl } from '../media/youtube';
+import { mountYouTubePlayer, type TvAudioState, type YouTubeHandle } from '../media/youtubePlayer';
 import { tvId, tvScreenWorld, worldToCanvas, type TvSpot } from '../world/tv';
 import type { FurniturePlace } from '../world/furniture';
 
@@ -11,13 +11,15 @@ type Playing = {
   videoId: string;
   place: FurniturePlace;
   clip: HTMLDivElement;
-  frame: HTMLIFrameElement;
-  muted: boolean;
+  frame: HTMLElement;
+  handle: YouTubeHandle | null;
+  mount: number;
 };
 
 export class TvScreens {
   private readonly root: HTMLElement;
   private playing = new Map<string, Playing>();
+  private audio: TvAudioState = { muted: true, volume: 80 };
 
   constructor() {
     const root = document.querySelector('#tv-screens');
@@ -29,33 +31,69 @@ export class TvScreens {
     return this.playing.has(id);
   }
 
+  size(): number {
+    return this.playing.size;
+  }
+
+  setAudio(audio: TvAudioState): void {
+    this.audio = { ...audio };
+    for (const current of this.playing.values()) current.handle?.applyAudio(this.audio);
+  }
+
   stopAll(): void {
     for (const id of [...this.playing.keys()]) this.stop(id);
   }
 
-  play(spot: TvSpot, videoId: string, muted: boolean): void {
+  play(spot: TvSpot, videoId: string): void {
     const id = tvId(spot.place);
     const existing = this.playing.get(id);
-    if (existing?.videoId === videoId && existing.muted === muted) return;
+    if (existing?.videoId === videoId) {
+      existing.place = spot.place;
+      existing.handle?.applyAudio(this.audio);
+      return;
+    }
+    existing?.handle?.destroy();
     existing?.clip.remove();
 
     const clip = document.createElement('div');
     clip.className = 'tv-screen';
-
-    const frame = document.createElement('iframe');
+    const frame = document.createElement('div');
     frame.className = 'tv-screen-player';
-    frame.allow = 'autoplay; encrypted-media; picture-in-picture';
-    frame.referrerPolicy = 'strict-origin-when-cross-origin';
-    frame.src = youtubeEmbedUrl(videoId, muted);
-    frame.title = 'TV';
+    const mount = document.createElement('div');
+    frame.append(mount);
     clip.append(frame);
     this.root.append(clip);
-    this.playing.set(id, { tvId: id, videoId, place: spot.place, clip, frame, muted });
+
+    const token = (existing?.mount ?? 0) + 1;
+    const current: Playing = {
+      tvId: id,
+      videoId,
+      place: spot.place,
+      clip,
+      frame,
+      handle: null,
+      mount: token,
+    };
+    this.playing.set(id, current);
+
+    void mountYouTubePlayer(mount, videoId, this.audio)
+      .then((handle) => {
+        const live = this.playing.get(id);
+        if (!live || live.videoId !== videoId || live.mount !== token) {
+          handle.destroy();
+          return;
+        }
+        live.handle = handle;
+        handle.applyAudio(this.audio);
+      })
+      .catch(() => undefined);
   }
 
   stop(id: string): void {
     const current = this.playing.get(id);
     if (!current) return;
+    current.mount += 1;
+    current.handle?.destroy();
     current.clip.remove();
     this.playing.delete(id);
   }

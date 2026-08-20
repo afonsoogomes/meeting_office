@@ -67,7 +67,7 @@ Os pisos começam em `y = 336`. Tile `(col, row)` relativo a esse bloco: `x = co
 
 ## Móveis
 
-O catálogo jogável vem de `scripts/gen-furniture-catalog.py` (índices oficiais do `Furniture.png`, grade 32 colunas × 16px). Fonte da verdade gerada: `src/world/furnitureData.ts`. Recortes extra (escrivaninha, vasos do Craftables, cozinha do Farmhouse) continuam em `src/world/atlas.ts`.
+O catálogo jogável vem de `scripts/gen-furniture-catalog.py` (índices oficiais do `Furniture.png`, grade 32 colunas × 16px). Fonte da verdade gerada: `src/world/furnitureData.ts`. Recortes extra (escrivaninha, vasos e fliperamas do Craftables, cozinha do Farmhouse) continuam em `src/world/atlas.ts`.
 
 Peças já usadas no escritório modelo:
 
@@ -90,6 +90,8 @@ Peças já usadas no escritório modelo:
 | `rug` | Furniture | 354, 1362 | 93×62 |
 | `plant` | Craftables | 0, 0 | 16×32 |
 | `plant-fern` | Craftables | 32, 0 | 16×32 |
+| `arcade` | Craftables | 80, 544 | 16×32 — fliperama Prairie King |
+| `arcade-junimo` | Craftables | 112, 608 | 16×32 — fliperama Junimo Kart |
 
 `Furniture.png` é 980×1488 numa grade de 16px. Em `y = 640` o armário é **48×48** (começa em x=0); as estantes seguintes começam em **x=48** e **x=80** (32×48). Não fatiar essa fileira a cada 32px a partir de 0. Cadeiras: 3 vistas na primeira linha; esquerda = `chair-right` espelhada. Tapete em `Furniture`, não no Farmhouse `(96, 128)` (isso é kit de parede).
 

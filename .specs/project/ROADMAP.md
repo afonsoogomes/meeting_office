@@ -1,7 +1,7 @@
 # Roadmap
 
-**Current Milestone:** Voz por proximidade
-**Status:** Complete
+**Current Milestone:** Fliperama SNES
+**Status:** In progress
 
 ---
 
@@ -54,7 +54,15 @@
 
 ---
 
-## Future Considerations
+## Milestone 4 — Fliperama
+
+**Goal:** Dois browsers no mesmo SNES, P1/P2 definidos pelo escritório.
+
+### Features
+
+**Sessão Nest + EmulatorJS Netplay** - IN PROGRESS
+
+---
 
 - Pets seguindo o personagem
 - Salas/mapas customizáveis

@@ -13,7 +13,7 @@ Pasta de origem: `/Users/afonsooliveira/Downloads/Sprites`
 | `Tilesets/Flooring.png` | Pisos extra 32×32 |
 | `Tilesets/Furniture.png` | Cadeiras, sofás, mesas, estantes |
 | `Tilesets/Chairs & Desks.png` | Mesa de escritório |
-| `Tilesets/Craftables.png` | Plantas |
+| `Tilesets/Craftables.png` | Plantas e fliperamas |
 | `Maps/Pierre's General Store.png` | Referência de cômodos-ilha no vazio preto |
 
 O restante do pack (praia, minas, festivais…) serve para exteriores ou casas futuras — não entra no builder atual.
@@ -35,7 +35,7 @@ O restante do pack (praia, minas, festivais…) serve para exteriores ou casas f
 | `Caroline's Greenhouse.png` | 256×256 |  |
 | `Chairs & Desks.png` | 239×125 | Mesa de escritório e cadeiras compactas |
 | `Coop.png` | 64×336 |  |
-| `Craftables.png` | 128×1408 | Plantas e objetos 16×32 (8 colunas) |
+| `Craftables.png` | 128×1408 | Plantas, fliperamas e objetos 16×32 (8 colunas) |
 | `Darkroom.png` | 112×128 |  |
 | `Desert Festival.png` | 512×568 |  |
 | `Desert.png` | 304×368 |  |

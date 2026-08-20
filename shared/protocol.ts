@@ -1,3 +1,12 @@
+import {
+  isActiveSession,
+  isPlayerRole,
+  isPlayerStatus,
+  isSessionStatus,
+  type GameSessionPlayerView,
+  type GameSessionView,
+} from './game-session';
+
 export const ACTIONS = ['idle', 'walk', 'run', 'wave', 'talk', 'sit', 'sleep'] as const;
 export const FACINGS = ['down', 'right', 'up', 'left'] as const;
 
@@ -50,14 +59,21 @@ export type ClientMessage =
   | { type: 'furniture_reset' };
 
 export type ServerMessage =
-  | { type: 'welcome'; peers: Peer[]; tvs: TvScreen[]; furniture: FurniturePlacement[] }
+  | {
+      type: 'welcome';
+      peers: Peer[];
+      tvs: TvScreen[];
+      furniture: FurniturePlacement[];
+      games: GameSessionView[];
+    }
   | { type: 'join'; peer: Peer }
   | { type: 'leave'; guestId: string }
   | { type: 'state'; guestId: string; pose: Pose }
   | { type: 'meta'; guestId: string; name: string; appearance: Appearance }
   | { type: 'chat'; guestId: string; name: string; text: string }
   | { type: 'tv'; tvId: string; platform: TvPlatform | null; videoId: string | null }
-  | { type: 'furniture'; places: FurniturePlacement[] };
+  | { type: 'furniture'; places: FurniturePlacement[] }
+  | { type: 'game'; sessions: GameSessionView[] };
 
 export type TvPlatform = 'youtube';
 
@@ -283,6 +299,93 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   return null;
 }
 
+export function sanitizeGameSessionView(value: unknown): GameSessionView | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value)) return null;
+  const id = sanitizeGuestId(value.id);
+  const gameId = typeof value.gameId === 'string' && GAME_ID_RE.test(value.gameId) ? value.gameId : null;
+  const gameName = typeof value.gameName === 'string' ? value.gameName.trim().slice(0, 80) : '';
+  const hostGuestId = sanitizeGuestId(value.hostGuestId);
+  const maxPlayers = asNumber(value.maxPlayers, 1, 8);
+  const minPlayers = asNumber(value.minPlayers, 1, 8) ?? 1;
+  const createdAt = asNumber(value.createdAt, 0, Number.MAX_SAFE_INTEGER);
+  if (!id || !gameId || !gameName || !hostGuestId || maxPlayers === null || createdAt === null) return null;
+  if (value.platform !== 'snes' || !isSessionStatus(value.status)) return null;
+  const startedAt =
+    value.startedAt === null || value.startedAt === undefined
+      ? null
+      : asNumber(value.startedAt, 0, Number.MAX_SAFE_INTEGER);
+  if (value.startedAt != null && startedAt === null) return null;
+  const netplayRoomId =
+    value.netplayRoomId === null || value.netplayRoomId === undefined
+      ? null
+      : typeof value.netplayRoomId === 'string' && NETPLAY_ROOM_RE.test(value.netplayRoomId)
+        ? value.netplayRoomId
+        : null;
+  if (!Array.isArray(value.players)) return null;
+  const players: GameSessionPlayerView[] = [];
+  for (const item of value.players) {
+    if (!isRecord(item)) continue;
+    const guestId = sanitizeGuestId(item.guestId);
+    const name = sanitizeName(item.name);
+    const role = isPlayerRole(item.role) ? item.role : 'player';
+    const playerNumber = asNumber(item.playerNumber, 0, 8);
+    if (!guestId || !name || playerNumber === null || !isPlayerStatus(item.status)) continue;
+    const readyAt =
+      item.readyAt === null || item.readyAt === undefined ? null : asNumber(item.readyAt, 0, Number.MAX_SAFE_INTEGER);
+    if (item.readyAt != null && readyAt === null) continue;
+    players.push({
+      guestId,
+      name,
+      role,
+      playerNumber: Math.round(playerNumber),
+      status: item.status,
+      readyAt,
+    });
+  }
+  const view: GameSessionView = {
+    id,
+    gameId,
+    gameName,
+    platform: 'snes',
+    status: value.status,
+    hostGuestId,
+    minPlayers: Math.min(Math.round(minPlayers), Math.round(maxPlayers)),
+    maxPlayers: Math.round(maxPlayers),
+    createdAt,
+    startedAt,
+    netplayRoomId,
+    watchReady: false,
+    players,
+  };
+  view.watchReady = value.watchReady === true || (value.watchReady !== false && isWatchReadyForView(view));
+  return view;
+}
+
+function isWatchReadyForView(session: GameSessionView): boolean {
+  return (
+    session.status === 'playing' &&
+    Boolean(session.netplayRoomId) &&
+    session.players
+      .filter((player) => player.role === 'player' && player.status !== 'disconnected' && player.status !== 'finished')
+      .every((player) => player.status === 'connected') &&
+    session.players.some((player) => player.role === 'player' && player.status === 'connected')
+  );
+}
+
+export function sanitizeGameSessionList(value: unknown): GameSessionView[] {
+  if (!Array.isArray(value)) return [];
+  const sessions: GameSessionView[] = [];
+  for (const item of value) {
+    const session = sanitizeGameSessionView(item);
+    if (session && isActiveSession(session.status)) sessions.push(session);
+  }
+  return sessions;
+}
+
+const GAME_ID_RE = /^[a-z0-9-]{1,64}$/;
+const NETPLAY_ROOM_RE = /^[A-Za-z0-9_-]{4,80}$/;
+
 export function parseServerMessage(raw: string): ServerMessage | null {
   let parsed: unknown;
   try {
@@ -305,7 +408,15 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         if (screen) tvs.push(screen);
       }
     }
-    return { type: 'welcome', peers, tvs, furniture: parseFurnitureList(parsed.furniture) };
+    return {
+      type: 'welcome',
+      peers,
+      tvs,
+      furniture: parseFurnitureList(parsed.furniture),
+      games: Array.isArray(parsed.games)
+        ? sanitizeGameSessionList(parsed.games)
+        : sanitizeGameSessionList(parsed.game ? [parsed.game] : []),
+    };
   }
   if (parsed.type === 'join') {
     const peer = sanitizePeer(parsed.peer);
@@ -342,5 +453,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       : null;
   }
   if (parsed.type === 'furniture') return { type: 'furniture', places: parseFurnitureList(parsed.places) };
+  if (parsed.type === 'game') {
+    if (Array.isArray(parsed.sessions)) return { type: 'game', sessions: sanitizeGameSessionList(parsed.sessions) };
+    const one = sanitizeGameSessionView(parsed.session);
+    return { type: 'game', sessions: one && isActiveSession(one.status) ? [one] : [] };
+  }
   return null;
 }

@@ -60,6 +60,8 @@ export const SLICES: Slice[] = [
 
   { key: 'plant', sheet: 'sheet-craft', x: 0, y: 0, w: 16, h: 32 },
   { key: 'plant-fern', sheet: 'sheet-craft', x: 32, y: 0, w: 16, h: 32 },
+  { key: 'arcade', sheet: 'sheet-craft', x: 80, y: 544, w: 16, h: 32 },
+  { key: 'arcade-junimo', sheet: 'sheet-craft', x: 112, y: 608, w: 16, h: 32 },
   { key: 'counter', sheet: 'sheet-farm', x: 32, y: 192, w: 16, h: 48 },
   { key: 'stove', sheet: 'sheet-farm', x: 48, y: 192, w: 16, h: 48 },
   { key: 'sink', sheet: 'sheet-farm', x: 64, y: 192, w: 16, h: 48 },

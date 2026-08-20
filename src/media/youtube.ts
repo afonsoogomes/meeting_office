@@ -35,18 +35,3 @@ export function parseYouTubeId(input: string): string | null {
 function validId(value: string | undefined): string | null {
   return value && YOUTUBE_ID.test(value) ? value : null;
 }
-
-export function youtubeEmbedUrl(videoId: string, muted: boolean): string {
-  const params = new URLSearchParams({
-    autoplay: '1',
-    rel: '0',
-    modestbranding: '1',
-    playsinline: '1',
-    controls: '0',
-    fs: '0',
-    disablekb: '1',
-    iv_load_policy: '3',
-  });
-  if (muted) params.set('mute', '1');
-  return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
-}

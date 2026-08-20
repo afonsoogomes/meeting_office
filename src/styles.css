@@ -164,6 +164,62 @@ button.pill {
   pointer-events: none;
 }
 
+#media-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.media-tile {
+  position: absolute;
+  overflow: hidden;
+  background: #0b0d12;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+.media-tile video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #050608;
+}
+
+.media-tile-camera {
+  border: 2px solid #7c9cff;
+  border-radius: 50%;
+}
+
+.media-tile-screen {
+  border: 2px solid #e8ecf4;
+  border-radius: 10px;
+}
+
+.media-tile-screen video {
+  object-fit: contain;
+}
+
+.media-mirror {
+  transform: scaleX(-1);
+}
+
+.media-tile-label {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  left: 8px;
+  color: #f4f6fb;
+  font-size: 11px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
 .tv-screen {
   position: absolute;
   overflow: hidden;
@@ -183,6 +239,33 @@ button.pill {
   border: 0;
   transform-origin: top left;
   pointer-events: none;
+}
+
+.tv-screen-player iframe {
+  display: block;
+  width: 320px;
+  height: 180px;
+  border: 0;
+}
+
+.tv-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tv-audio.hidden {
+  display: none;
+}
+
+.tv-audio-slider {
+  width: 88px;
+  height: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 #chat-log {
@@ -256,8 +339,9 @@ button.pill {
   z-index: 5;
 }
 
-.panel.hidden {
-  display: none;
+.panel.hidden,
+.hidden {
+  display: none !important;
 }
 
 .panel-left {
@@ -482,4 +566,107 @@ kbd {
   background: #151923;
   color: var(--text);
   font-size: 11px;
+}
+
+.arcade-players {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.arcade-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.arcade-rooms-label {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.arcade-room {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151923;
+}
+
+.arcade-room strong {
+  display: block;
+  font-size: 13px;
+}
+
+.arcade-room span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.arcade-room-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.arcade-seat {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151923;
+  font-size: 12px;
+}
+
+.arcade-seat.spectator {
+  color: var(--muted);
+}
+
+.arcade-actions {
+  margin-bottom: 8px;
+}
+
+.arcade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #0e1118;
+}
+
+.arcade-overlay.hidden {
+  display: none;
+}
+
+.arcade-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(28, 33, 44, 0.96);
+}
+
+.arcade-overlay-bar p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#arcade-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #000;
 }

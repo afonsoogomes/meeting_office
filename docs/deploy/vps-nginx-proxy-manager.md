@@ -14,7 +14,9 @@ Nginx Proxy Manager :443
   ├─ /ws         → Nest      :8787   (WebSocket de presença)
   ├─ /offices    → Nest      :8787   (casa + móveis)
   ├─ /voice      → Nest      :8787   (POST /voice/token)
+  ├─ /games      → Nest      :8787   (sessões SNES + ROM)
   ├─ /health     → Nest      :8787
+  ├─ netplay.*   → Netplay   :3000   (Socket.IO; WebSocket)
   └─ livekit.*   → LiveKit   :7880   (sinalização)
                    UDP 50000–60000   (mídia; NÃO passa pelo NPM)
 ```
@@ -55,6 +57,11 @@ LIVEKIT_PUBLIC_URL=wss://livekit.exemplo.com
 
 # SQLite do escritório compartilhado (seed em shared/office-default.ts na primeira subida)
 OFFICE_DB_PATH=/opt/meeting-office/server/data/office.db
+
+# SNES: ROMs que você tem direito de hospedar
+GAMES_ROM_DIR=/opt/meeting-office/server/data/roms
+NETPLAY_PUBLIC_URL=https://netplay.exemplo.com
+EJS_CDN=https://cdn.emulatorjs.org/latest/data/
 ```
 
 Gere o secret:
@@ -210,6 +217,7 @@ O NPM em Docker não alcança `127.0.0.1` da VPS. Use um destes no *Forward Host
 | `/ws` | http | `172.17.0.1` | `8787` |
 | `/offices` | http | `172.17.0.1` | `8787` |
 | `/voice` | http | `172.17.0.1` | `8787` |
+| `/games` | http | `172.17.0.1` | `8787` |
 | `/health` | http | `172.17.0.1` | `8787` |
 
 A location `/` continua no Details (4173). Sem as custom locations, presença e token 404/502.
@@ -230,6 +238,19 @@ SSL: Request certificate, Force SSL. Microfone no browser **exige** HTTPS.
 Esse host tem que ser **exatamente** o host de `LIVEKIT_PUBLIC_URL=wss://livekit.exemplo.com` (sem path).
 
 UDP de mídia **não** entra no NPM. Os browsers falam UDP direto na VPS.
+
+### Host 3 — Netplay EmulatorJS (sinalização Socket.IO)
+
+| Campo | Valor |
+| --- | --- |
+| Domain Names | `netplay.exemplo.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | `172.17.0.1` |
+| Forward Port | `3000` |
+| Websockets Support | ligado |
+| SSL | Let's Encrypt, Force SSL |
+
+Tem que ser o mesmo host de `NETPLAY_PUBLIC_URL`. A mídia SNES é WebRTC **entre os browsers** (STUN/TURN), não passa aqui. Detalhe: [docs/games/NETPLAY.md](../games/NETPLAY.md).
 
 ### Advanced (só se o WS do `/ws` cair)
 

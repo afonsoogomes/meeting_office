@@ -19,7 +19,7 @@ async function bootstrap(): Promise<void> {
 
   app.get(PresenceSocket).attach(app.getHttpServer());
   await app.listen(PORT);
-  Logger.log(`presence listening on http://localhost:${PORT} (ws /ws, GET /offices)`, 'Bootstrap');
+  Logger.log(`presence listening on http://localhost:${PORT} (ws /ws, GET /offices, /games)`, 'Bootstrap');
 }
 
 void bootstrap().catch((error: unknown) => {
