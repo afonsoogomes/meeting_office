@@ -59,7 +59,8 @@ export type ClientMessage =
   | { type: 'furniture_add'; item: string; col: number; row: number; facing?: Facing }
   | { type: 'furniture_update'; id: string; col: number; row: number; facing?: Facing }
   | { type: 'furniture_remove'; id: string }
-  | { type: 'furniture_reset' };
+  | { type: 'furniture_reset' }
+  | { type: 'ping' };
 
 export type ServerMessage =
   | {
@@ -76,7 +77,8 @@ export type ServerMessage =
   | { type: 'chat'; guestId: string; name: string; text: string }
   | { type: 'tv'; tvId: string; platform: TvPlatform | null; videoId: string | null }
   | { type: 'furniture'; places: FurniturePlacement[] }
-  | { type: 'game'; sessions: GameSessionView[] };
+  | { type: 'game'; sessions: GameSessionView[] }
+  | { type: 'pong' };
 
 export type TvPlatform = 'youtube';
 
@@ -98,6 +100,7 @@ export const MAX_TVS = 32;
 export const MAX_FURNITURE = 400;
 export const CHAT_MAX = 80;
 export const NAME_MAX = 18;
+export const WS_HEARTBEAT_MS = 15_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -301,6 +304,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     return id ? { type: 'furniture_remove', id } : null;
   }
   if (parsed.type === 'furniture_reset') return { type: 'furniture_reset' };
+  if (parsed.type === 'ping') return { type: 'ping' };
   return null;
 }
 
@@ -463,5 +467,6 @@ export function parseServerMessage(raw: string): ServerMessage | null {
     const one = sanitizeGameSessionView(parsed.session);
     return { type: 'game', sessions: one && isActiveSession(one.status) ? [one] : [] };
   }
+  if (parsed.type === 'pong') return { type: 'pong' };
   return null;
 }

@@ -1,6 +1,7 @@
 import type { Appearance } from '../character/appearance';
 import {
   parseServerMessage,
+  WS_HEARTBEAT_MS,
   type ClientMessage,
   type Facing,
   type FurniturePlacement,
@@ -36,6 +37,7 @@ export class PresenceClient {
   private closed = false;
   private attempt = 0;
   private retryTimer = 0;
+  private heartbeatTimer = 0;
   private joinPayload: Extract<ClientMessage, { type: 'join' }> | null = null;
 
   constructor(private readonly handlers: PresenceHandlers) {}
@@ -88,6 +90,7 @@ export class PresenceClient {
   disconnect(): void {
     this.closed = true;
     window.clearTimeout(this.retryTimer);
+    this.stopHeartbeat();
     const socket = this.socket;
     this.socket = null;
     socket?.close();
@@ -102,6 +105,7 @@ export class PresenceClient {
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return;
       this.attempt = 0;
+      this.startHeartbeat();
       if (this.joinPayload) this.send(this.joinPayload);
       this.handlers.onStatus('online');
     });
@@ -109,7 +113,7 @@ export class PresenceClient {
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket) return;
       const message = parseServerMessage(String(event.data));
-      if (!message) return;
+      if (!message || message.type === 'pong') return;
       if (message.type === 'welcome') this.handlers.onWelcome(message.peers, message.tvs, message.furniture, message.games);
       else if (message.type === 'join') this.handlers.onJoin(message.peer);
       else if (message.type === 'leave') this.handlers.onLeave(message.guestId);
@@ -124,6 +128,7 @@ export class PresenceClient {
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return;
       this.socket = null;
+      this.stopHeartbeat();
       this.scheduleReconnect();
     });
   }
@@ -134,6 +139,17 @@ export class PresenceClient {
     const delay = Math.min(8000, 600 * 2 ** this.attempt);
     this.attempt += 1;
     this.retryTimer = window.setTimeout(() => this.open(), delay);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = window.setInterval(() => this.send({ type: 'ping' }), WS_HEARTBEAT_MS);
+    this.send({ type: 'ping' });
+  }
+
+  private stopHeartbeat(): void {
+    window.clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = 0;
   }
 
   private send(message: ClientMessage): void {

@@ -214,6 +214,40 @@ test('host leaving a live match finishes it', () => {
   assert.equal(games.current(), null);
 });
 
+test('office websocket drop during a match does not finish it', () => {
+  const games = service();
+  const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-mario-kart' }));
+  data(games.join({ sessionId: created.id, guestId: B, name: 'João' }));
+  data(games.ready({ sessionId: created.id, guestId: A }));
+  data(games.ready({ sessionId: created.id, guestId: B }));
+  data(games.reportNetplay({ sessionId: created.id, guestId: A, roomId: 'ejs-room-1' }));
+  const dropped = games.presenceLost(A);
+  assert.equal(dropped?.status, 'playing');
+  assert.equal(dropped?.players.find((player) => player.guestId === A)?.status, 'disconnected');
+  assert.equal(games.current()?.id, created.id);
+  const back = games.presenceRestored(A);
+  assert.equal(back?.players.find((player) => player.guestId === A)?.status, 'connected');
+  assert.equal(games.current()?.status, 'playing');
+});
+
+test('office websocket drop while starting solo does not finish it', () => {
+  const games = service();
+  const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-bomberman-5' }));
+  data(games.start({ sessionId: created.id, guestId: A }));
+  const dropped = games.presenceLost(A);
+  assert.equal(dropped?.status, 'starting');
+  assert.equal(dropped?.players.find((player) => player.guestId === A)?.status, 'disconnected');
+  assert.equal(games.current()?.id, created.id);
+});
+
+test('office websocket drop in the lobby still closes an empty room', () => {
+  const games = service();
+  const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-mario-kart' }));
+  const dropped = games.presenceLost(A);
+  assert.equal(dropped?.status, 'cancelled');
+  assert.equal(games.current(), null);
+});
+
 test('cancel from the host closes the lobby', () => {
   const games = service();
   const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-mario-kart' }));

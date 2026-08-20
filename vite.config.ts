@@ -9,6 +9,8 @@ export default defineConfig({
       '/ws': {
         target: 'http://127.0.0.1:8787',
         ws: true,
+        timeout: 0,
+        proxyTimeout: 0,
       },
       '/voice': {
         target: 'http://127.0.0.1:8787',

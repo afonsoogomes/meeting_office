@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common
 import type { Server } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { DEFAULT_OFFICE_SLUG } from '../../../shared/office';
-import { parseClientMessage, type ClientMessage, type FurniturePlacement } from '../../../shared/protocol';
+import { parseClientMessage, type ClientMessage, type FurniturePlacement, WS_HEARTBEAT_MS } from '../../../shared/protocol';
 import { GamesService } from '../games/games.service';
 import { OfficeService } from '../office/office.service';
 import { PresenceService } from './presence.service';
@@ -14,6 +14,7 @@ export class PresenceSocket {
   private readonly lastChatAt = new Map<WebSocket, number>();
   private readonly lastTvAt = new Map<WebSocket, number>();
   private readonly lastFurnitureAt = new Map<WebSocket, number>();
+  private readonly pings = new Map<WebSocket, ReturnType<typeof setInterval>>();
 
   constructor(
     @Inject(PresenceService) private readonly presence: PresenceService,
@@ -32,12 +33,23 @@ export class PresenceSocket {
   detach(): void {
     this.wss?.close();
     this.wss = null;
+    for (const ping of this.pings.values()) clearInterval(ping);
+    this.pings.clear();
   }
 
   private bind(socket: WebSocket): void {
     socket.on('error', (error) => this.logger.warn(error.message));
     socket.on('message', (data) => this.onMessage(socket, data));
+    this.pings.set(
+      socket,
+      setInterval(() => {
+        if (socket.readyState === socket.OPEN) socket.ping();
+      }, WS_HEARTBEAT_MS),
+    );
     socket.on('close', () => {
+      const ping = this.pings.get(socket);
+      if (ping) clearInterval(ping);
+      this.pings.delete(socket);
       this.lastChatAt.delete(socket);
       this.lastTvAt.delete(socket);
       this.lastFurnitureAt.delete(socket);
@@ -53,6 +65,11 @@ export class PresenceSocket {
     const message = parseClientMessage(String(data));
     if (!message) return;
 
+    if (message.type === 'ping') {
+      this.presence.send(socket, { type: 'pong' });
+      return;
+    }
+
     if (message.type === 'join') {
       const peer = {
         guestId: message.guestId,
@@ -64,6 +81,7 @@ export class PresenceSocket {
         socket.close(4000, 'office full');
         return;
       }
+      this.games?.presenceRestored(peer.guestId);
       this.presence.send(socket, {
         type: 'welcome',
         peers: this.presence.peersExcept(peer.guestId),

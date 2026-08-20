@@ -275,7 +275,27 @@ export class GamesService {
   presenceLost(guestId: string): GameSessionView | null {
     const session = this.store.findActiveForGuest(guestId);
     if (!session) return null;
+    if (session.status === 'starting' || session.status === 'playing') {
+      const player = member(session, guestId);
+      if (player && player.status !== 'disconnected') {
+        player.status = 'disconnected';
+        const result = this.persist(session);
+        return result.ok ? result.data : this.toView(session);
+      }
+      return this.toView(session);
+    }
     const result = this.removeOrDisconnect(session, guestId);
+    return result.ok ? result.data : this.toView(session);
+  }
+
+  presenceRestored(guestId: string): GameSessionView | null {
+    const session = this.store.findActiveForGuest(guestId);
+    if (!session) return null;
+    const player = member(session, guestId);
+    if (!player || player.status !== 'disconnected') return this.toView(session);
+    if (session.status !== 'starting' && session.status !== 'playing') return this.toView(session);
+    player.status = 'connected';
+    const result = this.persist(session);
     return result.ok ? result.data : this.toView(session);
   }
 

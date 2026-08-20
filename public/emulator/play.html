@@ -137,7 +137,7 @@
           settings: true,
           fullscreen: true,
         };
-        window.EJS_netplayServer = cfg.netplayServer || defaultNetplayServer();
+        window.EJS_netplayServer = cfg.netplayServer || defaultNetplayServer(cfg);
         window.EJS_netplayICEServers = cfg.iceServers;
         window.EJS_onGameStart = () => {
           parent.postMessage({ type: 'office-emulator-playing' }, window.location.origin);
@@ -209,7 +209,7 @@
           showNetplayHint('Socket.IO não carregou. O jogo local continua.');
           return;
         }
-        const server = (cfg.netplayServer || defaultNetplayServer()).replace(/\/$/, '');
+        const server = (cfg.netplayServer || defaultNetplayServer(cfg)).replace(/\/$/, '');
         if (!np.url) np.url = server;
         if (emu.config && !emu.config.netplayUrl) emu.config.netplayUrl = server;
         if (typeof np.defineNetplayFunctions === 'function') {
@@ -329,8 +329,9 @@
         });
       }
 
-      function defaultNetplayServer() {
-        return `${location.protocol}//${location.hostname}:${Number(cfg && cfg.netplayPort) || 3000}`;
+      function defaultNetplayServer(cfg) {
+        const port = Number(cfg && cfg.netplayPort) || 3000;
+        return `${location.protocol}//${location.hostname}:${port}`;
       }
 
       function waitFor(probe, timeout) {
