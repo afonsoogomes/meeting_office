@@ -16,7 +16,7 @@
 
 ### AD-008: Salas paralelas, solo e espectador (2026-08-19)
 
-**Decision:** `minPlayers: 1`; várias `GameSession` ativas; role `spectator` sem lugar P1–P4. EJS room cap = maxPlayers + 8.
+**Decision:** `minPlayers: 1`; até 5 no Bomberman; várias `GameSession` ativas; role `spectator` sem lugar P1–P5. EJS room cap = maxPlayers + 8.
 **Reason:** Querer jogar sozinho, dois grupos no mesmo jogo, e assistir o stream do host.
 **Trade-off:** EmulatorJS não tem watch nativo; o espectador é um peer extra com teclado bloqueado, só depois de todos os jogadores `connected`.
 **Impact:** WS `games[]` em vez de uma sessão; `POST /games/sessions/:id/watch`.

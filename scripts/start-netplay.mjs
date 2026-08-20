@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
+import { envPort, loadRootEnv } from './root-env.mjs';
 
-const PORT = 3000;
+loadRootEnv();
+const PORT = envPort('NETPLAY_PORT', 3000);
 const here = dirname(fileURLToPath(import.meta.url));
 const netplayDir = join(here, '..', 'infra', 'emulatorjs-netplay');
 
@@ -19,7 +21,7 @@ function portOpen() {
 
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit', cwd });
+    const child = spawn(command, args, { stdio: 'inherit', cwd, env: process.env });
     child.on('error', reject);
     child.on('exit', (code) => resolve(code ?? 1));
   });
@@ -31,14 +33,15 @@ function hold(message) {
 }
 
 if (await portOpen()) {
-  await hold('Netplay already listening on :3000');
+  await hold(`Netplay already listening on :${PORT}`);
 }
 
 try {
   await run('docker', ['compose', 'up', '-d', '--build', 'netplay']);
-  await hold('Netplay listening on :3000');
+  await hold(`Netplay listening on :${PORT}`);
 } catch {
   try {
+    process.env.PORT = String(PORT);
     await run('npm', ['install', '--omit=dev'], netplayDir);
     await run('node', ['server.js'], netplayDir);
   } catch (error) {

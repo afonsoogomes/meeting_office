@@ -2,7 +2,10 @@ import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { loadRootEnv } from './load-root-env';
 import { PresenceSocket } from './presence/presence.socket';
+
+loadRootEnv();
 
 const PORT = Number(process.env.PORT ?? 8787);
 

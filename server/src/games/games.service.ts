@@ -16,6 +16,7 @@ import {
   type GameSessionView,
 } from '../../../shared/game-session';
 import { PresenceService } from '../presence/presence.service';
+import { envPort } from '../load-root-env';
 import { GamesRepository } from './games.repository';
 import type { GameStore, StoredPlayer, StoredSession } from './game-store';
 
@@ -303,6 +304,7 @@ export class GamesService {
       ejsGameId: game.ejsGameId,
       ejsCdn: process.env.EJS_CDN?.trim() || DEFAULT_EJS_CDN,
       netplayServer: process.env.NETPLAY_PUBLIC_URL?.trim() || '',
+      netplayPort: envPort('NETPLAY_PORT', 3000),
       iceServers: parseIceServers(),
       role: player.role === 'spectator' ? 'spectator' : host ? 'host' : 'guest',
       playerNumber: player.playerNumber,

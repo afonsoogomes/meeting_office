@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { envPort, loadRootEnv } from './root-env.mjs';
 
-const PORT = 7880;
+loadRootEnv();
+const PORT = envPort('LIVEKIT_PORT', 7880);
 
 function portOpen() {
   return new Promise((resolve) => {
@@ -15,7 +17,7 @@ function portOpen() {
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit' });
+    const child = spawn(command, args, { stdio: 'inherit', env: process.env });
     child.on('error', reject);
     child.on('exit', (code) => resolve(code ?? 1));
   });
@@ -27,7 +29,7 @@ function hold(message) {
 }
 
 if (await portOpen()) {
-  await hold('LiveKit already listening on :7880');
+  await hold(`LiveKit already listening on :${PORT}`);
 }
 
 try {

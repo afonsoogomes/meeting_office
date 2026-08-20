@@ -16,7 +16,7 @@ export type GamePlatform = 'snes';
 export const PLAYER_ROLES = ['player', 'spectator'] as const;
 export type PlayerRole = (typeof PLAYER_ROLES)[number];
 
-/** Extra EmulatorJS Netplay seats so watchers can join after P1–P4. */
+/** Extra EmulatorJS Netplay seats so watchers can join after seated players. */
 export const MAX_GAME_SPECTATORS = 8;
 
 export type GameDefinition = {
@@ -75,6 +75,8 @@ export type EmulatorSessionConfig = {
   ejsGameId: number;
   ejsCdn: string;
   netplayServer: string;
+  /** Host port published by docker compose when `netplayServer` is empty. */
+  netplayPort: number;
   iceServers: GameIceServer[];
   role: 'host' | 'guest' | 'spectator';
   playerNumber: number;

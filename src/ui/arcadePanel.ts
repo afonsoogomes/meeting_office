@@ -158,7 +158,7 @@ export class ArcadePanel {
 
     if (!session) {
       this.note.textContent =
-        'Cria uma sala (dá para jogar sozinho) ou entra numa que já exista. Assistir não ocupa P1–P4.';
+        'Cria uma sala (dá para jogar sozinho) ou entra numa que já exista. Assistir não ocupa lugar de jogador.';
       for (const game of this.catalog) {
         const button = document.createElement('button');
         button.type = 'button';

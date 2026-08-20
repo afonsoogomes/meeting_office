@@ -12,7 +12,7 @@ export const GAME_CATALOG: GameDefinition[] = [
     core: 'snes',
     romFile: 'snes/super-bomberman-5.smc',
     minPlayers: 1,
-    maxPlayers: 4,
+    maxPlayers: 5,
     ejsGameId: 3,
   },
   {

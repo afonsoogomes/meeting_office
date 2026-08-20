@@ -2,6 +2,8 @@
 
 Um domínio HTTPS na frente de tudo. O Nginx Proxy Manager (NPM) termina o TLS; o Nest, o `dist/` e o LiveKit ficam na VPS.
 
+Fliperama SNES (Docker `netplay`, ROM, `NETPLAY_PORT`): [docs/games/INSTALL.md](../games/INSTALL.md).
+
 Não precisa de `VITE_WS_URL` nem de base URL no frontend se o site e a API forem o **mesmo host**.
 
 ```
@@ -16,7 +18,7 @@ Nginx Proxy Manager :443
   ├─ /voice      → Nest      :8787   (POST /voice/token)
   ├─ /games      → Nest      :8787   (sessões SNES + ROM)
   ├─ /health     → Nest      :8787
-  ├─ netplay.*   → Netplay   :3000   (Socket.IO; WebSocket)
+  ├─ netplay.*   → Netplay   NETPLAY_PORT (Socket.IO; WebSocket)
   └─ livekit.*   → LiveKit   :7880   (sinalização)
                    UDP 50000–60000   (mídia; NÃO passa pelo NPM)
 ```
@@ -60,6 +62,7 @@ OFFICE_DB_PATH=/opt/meeting-office/server/data/office.db
 
 # SNES: ROMs que você tem direito de hospedar
 GAMES_ROM_DIR=/opt/meeting-office/server/data/roms
+NETPLAY_PORT=3000
 NETPLAY_PUBLIC_URL=https://netplay.exemplo.com
 EJS_CDN=https://cdn.emulatorjs.org/latest/data/
 ```
@@ -128,6 +131,9 @@ Environment=LIVEKIT_PUBLIC_URL=wss://livekit.exemplo.com
 Environment=LIVEKIT_API_KEY=officekey
 Environment=LIVEKIT_API_SECRET=troque
 Environment=LIVEKIT_ROOM=office
+Environment=GAMES_ROM_DIR=/opt/meeting-office/server/data/roms
+Environment=NETPLAY_PORT=3000
+Environment=NETPLAY_PUBLIC_URL=https://netplay.exemplo.com
 ExecStart=/usr/bin/npm run start -w meeting-office-server
 Restart=on-failure
 
@@ -246,11 +252,11 @@ UDP de mídia **não** entra no NPM. Os browsers falam UDP direto na VPS.
 | Domain Names | `netplay.exemplo.com` |
 | Scheme | `http` |
 | Forward Hostname / IP | `172.17.0.1` |
-| Forward Port | `3000` |
+| Forward Port | `3000` (ou o valor de `NETPLAY_PORT`) |
 | Websockets Support | ligado |
 | SSL | Let's Encrypt, Force SSL |
 
-Tem que ser o mesmo host de `NETPLAY_PUBLIC_URL`. A mídia SNES é WebRTC **entre os browsers** (STUN/TURN), não passa aqui. Detalhe: [docs/games/NETPLAY.md](../games/NETPLAY.md).
+Tem que ser o mesmo host de `NETPLAY_PUBLIC_URL`. A porta de forward é a **espelhada no host** (`NETPLAY_PORT`), não a 3000 interna se as duas forem diferentes. A mídia SNES é WebRTC **entre os browsers** (STUN/TURN), não passa aqui. Instalação: [docs/games/INSTALL.md](../games/INSTALL.md).
 
 ### Advanced (só se o WS do `/ws` cair)
 
@@ -308,5 +314,6 @@ No jogo: duas abas em `https://office.exemplo.com`, pill **N no escritório**, *
 | --- | --- | --- |
 | `office.exemplo.com` | A | IP da VPS |
 | `livekit.exemplo.com` | A | IP da VPS |
+| `netplay.exemplo.com` | A | IP da VPS |
 
 Os dois no mesmo IP; o NPM separa pelo `Host`.

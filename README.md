@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Sobe o Vite em `http://localhost:5173`, a API Nest em `http://localhost:8787` (WebSocket em `/ws`) , o LiveKit em `ws://127.0.0.1:7880` e o Netplay do EmulatorJS em `http://127.0.0.1:3000` (Docker). Duas abas no mesmo URL já se veem e, no mesmo cômodo, se ouvem. Sem Docker o escritório continua jogável; voz e SNES online ficam off.
+Sobe o Vite em `http://localhost:5173`, a API Nest em `http://localhost:8787` (WebSocket em `/ws`), o LiveKit em `ws://127.0.0.1:7880` e o Netplay do EmulatorJS em `http://127.0.0.1:3000` (Docker). Portas do host: `LIVEKIT_PORT` / `NETPLAY_PORT` no `.env`. Sem Docker o escritório continua jogável; voz e SNES online ficam off.
 
 Na mesma rede, o Vite imprime um endereço **Network**. A voz nesse caso precisa de `LIVEKIT_PUBLIC_URL=ws://SEU_IP:7880` no servidor e `--node-ip` com o mesmo IP no LiveKit.
 
@@ -54,7 +54,7 @@ O mapa e os móveis iniciais vêm do Nest (`GET /offices/default`, SQLite em `se
 - Catálogo de ~330 móveis (cadeiras, mesas, sofás, tapetes, quadros, camas…)
 - Quadros, janelas e arandelas penduram no papel da parede norte; não ocupam o chão
 - TV com YouTube: `E` na TV, escolhe a plataforma, cola o link; quem entra na sala vê o mesmo vídeo
-- Fliperama SNES: `E` na máquina, lobby P1/P2 no Nest, EmulatorJS + Netplay self-hosted (WebRTC). ROMs em `server/data/roms/` — nada comercial no git. Detalhe: [docs/games/NETPLAY.md](docs/games/NETPLAY.md)
+- Fliperama SNES: `E` na máquina, até 5 no Bomberman, salas paralelas e assistir. Instalação: [docs/games/INSTALL.md](docs/games/INSTALL.md). Detalhe do protocolo: [docs/games/NETPLAY.md](docs/games/NETPLAY.md).
 - Voz por cômodo (LiveKit): quem está na mesma sala ouve em volume cheio; outra sala é outro canal. `M` mic, `K` som
 - Câmera e compartilhar tela (LiveKit): bolha no avatar e painel da tela, só no mesmo cômodo. Pill **câmera** / **tela**, atalho `V`
 
@@ -64,7 +64,7 @@ Contas, um escritório por pessoa, TURN para NAT difícil, e outras plataformas 
 
 ## Deploy (VPS)
 
-Nginx Proxy Manager, envs e LiveKit: [docs/deploy/vps-nginx-proxy-manager.md](docs/deploy/vps-nginx-proxy-manager.md).
+Nginx Proxy Manager, envs e LiveKit: [docs/deploy/vps-nginx-proxy-manager.md](docs/deploy/vps-nginx-proxy-manager.md). Fliperama (Docker netplay, ROM, portas): [docs/games/INSTALL.md](docs/games/INSTALL.md).
 
 ## Casa e tiles
 

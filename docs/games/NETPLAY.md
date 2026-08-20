@@ -1,6 +1,8 @@
 # SNES Netplay (EmulatorJS)
 
-O escritório cria a sessão (quem é P1/P2, qual ROM, password). **Cada browser** abre o EmulatorJS. O Nest **não** envia frames.
+Instalação (Docker, ROM, env, VPS): **[INSTALL.md](./INSTALL.md)**.
+
+O escritório cria a sessão (quem é P1–P5, qual ROM, password). **Cada browser** abre o EmulatorJS. O Nest **não** envia frames.
 
 ## O que o EmulatorJS faz (e o que não faz)
 
@@ -8,7 +10,7 @@ Isto **não** é o netplay do RetroArch (TCP 55435, cada lado emula o SNES em lo
 
 O Netplay atual do EmulatorJS (`latest`, classe `Netplay`) é:
 
-1. Sinalização **Socket.IO** no servidor `infra/emulatorjs-netplay` (`:3000`).
+1. Sinalização **Socket.IO** no servidor `infra/emulatorjs-netplay` (contentor :3000; no host é `NETPLAY_PORT`).
 2. **WebRTC** entre os browsers: o **host** (Player 1) emula; os outros recebem vídeo e mandam input.
 3. O índice do controle é `Object.keys(players).indexOf(playerID)` — **ordem de entrada**. Quem abre a sala é P1. O próximo join é P2.
 
@@ -46,7 +48,7 @@ Docker Compose sobe **livekit** e **netplay**. Sem Docker, o script tenta `node 
 
 Abra duas abas (dois `guestId`). `E` no fliperama → **Criar sala** / **Entrar** / **Assistir** → Pronto (se fores jogar) → **Abrir fliperama** (o clique é o gesto do browser).
 
-Dá para **começar sozinho** (host: **Começar agora**). Várias salas do mesmo jogo podem existir ao mesmo tempo. **Assistir** entra no stream do host sem ocupar P1–P4; o teclado do espectador é bloqueado. O EmulatorJS não tem modo watch nativo — o espectador só entra na sala Netplay **depois** de todos os jogadores estarem ligados, para não roubar o slot P2+.
+Dá para **começar sozinho** (host: **Começar agora**). Várias salas do mesmo jogo podem existir ao mesmo tempo. **Assistir** entra no stream do host sem ocupar P1–P5; o teclado do espectador é bloqueado. O EmulatorJS não tem modo watch nativo — o espectador só entra na sala Netplay **depois** de todos os jogadores estarem ligados, para não roubar o slot P2+.
 
 ## Teste manual P1 / P2
 
@@ -65,7 +67,7 @@ Dá para **começar sozinho** (host: **Começar agora**). Várias salas do mesmo
 | --- | --- | --- | --- |
 | Nest `/games` | 8787 | HTTPS | sim, mesmo host do site |
 | Nest `/ws` | 8787 | WSS | sim |
-| Netplay | 3000 | HTTP + Socket.IO (TCP) | sim, **outro** location ou subdomínio |
+| Netplay | `NETPLAY_PORT` (default 3000) | HTTP + Socket.IO (TCP) | sim, **outro** location ou subdomínio |
 | WebRTC mídia | dinâmico | UDP (STUN/TURN) | **não** passa no NPM |
 | LiveKit | inalterado | | |
 
@@ -75,7 +77,7 @@ Produção, no Proxy Host do escritório, extra:
 location /games { proxy_pass http://127.0.0.1:8787; ... }
 ```
 
-Netplay (subdomínio `netplay.exemplo.com` → `:3000`) com WebSocket:
+Netplay (subdomínio `netplay.exemplo.com` → host `NETPLAY_PORT`) com WebSocket:
 
 ```
 proxy_set_header Upgrade $http_upgrade;
@@ -105,6 +107,7 @@ O cliente **não** escolhe `playerNumber`, `userId` da sessão nem a ROM. Passwo
 GET  /games
 POST /games/sessions            { guestId, name, gameId }
 POST /games/sessions/:id/join
+POST /games/sessions/:id/watch
 POST /games/sessions/:id/ready
 POST /games/sessions/:id/start
 POST /games/sessions/:id/netplay  { guestId, roomId }  // só P1
@@ -113,4 +116,4 @@ GET  /games/sessions/:id/play?guestId=
 GET  /games/:gameId/rom?guestId=
 ```
 
-WS `{ type: 'game', session }` (sem password).
+WS `{ type: 'game', sessions: [...] }` (sem password).

@@ -9,8 +9,12 @@ import { MemoryGameStore } from './memory-store';
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 const C = '33333333-3333-4333-8333-333333333333';
+const D = '44444444-4444-4444-8444-444444444444';
+const E = '55555555-5555-4555-8555-555555555555';
+const F = '66666666-6666-4666-8666-666666666666';
 
 const previousRomDir = process.env.GAMES_ROM_DIR;
+const previousNetplayPort = process.env.NETPLAY_PORT;
 
 before(() => {
   const romDir = mkdtempSync(join(tmpdir(), 'office-roms-'));
@@ -19,11 +23,14 @@ before(() => {
   writeFileSync(join(romDir, 'snes/game.sfc'), 'fake-rom');
   writeFileSync(join(romDir, 'snes/super-bomberman-5.smc'), 'fake-rom');
   process.env.GAMES_ROM_DIR = romDir;
+  delete process.env.NETPLAY_PORT;
 });
 
 after(() => {
   if (previousRomDir === undefined) delete process.env.GAMES_ROM_DIR;
   else process.env.GAMES_ROM_DIR = previousRomDir;
+  if (previousNetplayPort === undefined) delete process.env.NETPLAY_PORT;
+  else process.env.NETPLAY_PORT = previousNetplayPort;
 });
 
 function service(): GamesService {
@@ -122,23 +129,19 @@ test('start is rejected until everyone is ready', () => {
   err(games.start({ sessionId: created.id, guestId: A }), 'NOT_READY', 409);
 });
 
-test('bomberman accepts four seats and can start with two ready', () => {
+test('bomberman accepts five seats and can start with two ready', () => {
   const games = service();
   const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-bomberman-5' }));
-  assert.equal(created.maxPlayers, 4);
+  assert.equal(created.maxPlayers, 5);
   data(games.join({ sessionId: created.id, guestId: B, name: 'João' }));
   data(games.join({ sessionId: created.id, guestId: C, name: 'Caio' }));
-  const D = '44444444-4444-4444-8444-444444444444';
-  const four = data(games.join({ sessionId: created.id, guestId: D, name: 'Nina' }));
-  assert.equal(four.players.length, 4);
-  err(
-    games.join({ sessionId: created.id, guestId: '55555555-5555-4555-8555-555555555555', name: 'Rafa' }),
-    'SESSION_FULL',
-    409,
-  );
+  data(games.join({ sessionId: created.id, guestId: D, name: 'Nina' }));
+  const five = data(games.join({ sessionId: created.id, guestId: E, name: 'Rafa' }));
+  assert.equal(five.players.filter((player) => player.role === 'player').length, 5);
+  err(games.join({ sessionId: created.id, guestId: F, name: 'Lina' }), 'SESSION_FULL', 409);
 });
 
-test('host can start bomberman with two of four when both are ready', () => {
+test('host can start bomberman with two of five when both are ready', () => {
   const games = service();
   const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-bomberman-5' }));
   data(games.join({ sessionId: created.id, guestId: B, name: 'João' }));
@@ -164,6 +167,7 @@ test('play config is host for P1 and guest for P2, without trusting the client',
   assert.equal(guest.playerNumber, 2);
   assert.equal(host.netplayPassword, guest.netplayPassword);
   assert.equal(host.netplayRoomId, null);
+  assert.equal(host.netplayPort, 3000);
   err(games.playConfig({ sessionId: created.id, guestId: C }), 'NOT_IN_SESSION', 403);
 });
 

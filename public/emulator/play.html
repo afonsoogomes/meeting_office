@@ -227,7 +227,9 @@
           if (typeof roomId === 'string') {
             parent.postMessage({ type: 'office-emulator-room', roomId }, window.location.origin);
           } else {
-            showNetplayHint('Sala Netplay não abriu (servidor :3000 a correr?). O jogo local continua.');
+            showNetplayHint(
+              `Sala Netplay não abriu (servidor :${cfg.netplayPort || 3000} a correr?). O jogo local continua.`,
+            );
           }
           reportSlot(np, cfg);
           return;
@@ -328,7 +330,7 @@
       }
 
       function defaultNetplayServer() {
-        return `${location.protocol}//${location.hostname}:3000`;
+        return `${location.protocol}//${location.hostname}:${Number(cfg && cfg.netplayPort) || 3000}`;
       }
 
       function waitFor(probe, timeout) {

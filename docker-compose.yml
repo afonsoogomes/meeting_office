@@ -3,12 +3,11 @@ services:
     image: livekit/livekit-server:latest
     command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1"]
     ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
+      - "${LIVEKIT_PORT:-7880}:7880"
+      - "${LIVEKIT_TCP_PORT:-7881}:7881"
+      - "${LIVEKIT_UDP_PORT:-7882}:7882/udp"
 
   netplay:
     build: ./infra/emulatorjs-netplay
     ports:
-      - "3000:3000"
-
+      - "${NETPLAY_PORT:-3000}:3000"
