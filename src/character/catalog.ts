@@ -1,12 +1,15 @@
 import type { Action, Direction } from './appearance';
-import { HAIR_COLORS } from './sheets';
+import { CLOTHES_COLORS, HAIR_COLORS, SKINS, SKIN_TONES } from './sheets';
 
 export const CATALOG = {
-  skin: { label: 'Corpo', count: 4, optional: false },
-  hair: { label: 'Cabelo', count: 32, optional: false },
-  hairColor: { label: 'Cor do cabelo', count: HAIR_COLORS.length, optional: false },
-  shirt: { label: 'Camisa', count: 48, optional: false },
-  pants: { label: 'Calça', count: 20, optional: false },
+  skinColor: { label: 'Pele', count: SKIN_TONES.length, optional: false },
+  hairColor: { label: 'Cabelo', count: HAIR_COLORS.length, optional: false },
+  shirtColor: { label: 'Camisa', count: CLOTHES_COLORS.length, optional: false },
+  pantsColor: { label: 'Calça', count: CLOTHES_COLORS.length, optional: false },
+  skin: { label: 'Corpo', count: SKINS.length, optional: false },
+  hair: { label: 'Corte', count: 32, optional: false },
+  shirt: { label: 'Modelo da camisa', count: 48, optional: false },
+  pants: { label: 'Modelo da calça', count: 20, optional: false },
   hat: { label: 'Chapéu', count: 24, optional: true },
   accessory: { label: 'Acessório', count: 16, optional: true },
 } as const;

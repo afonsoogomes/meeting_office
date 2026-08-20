@@ -14,37 +14,6 @@
   </head>
   <body>
     <div id="app">
-      <header class="topbar">
-        <div class="brand">
-          <span class="brand-mark"></span>
-          <div>
-            <strong>Meeting Office</strong>
-            <p>Escritório virtual</p>
-          </div>
-        </div>
-        <div class="pills">
-          <button id="mic-pill" class="pill pill-muted" type="button">voz off</button>
-          <button id="cam-pill" class="pill pill-muted" type="button">câmera</button>
-          <button id="share-pill" class="pill pill-muted" type="button">tela</button>
-          <button id="deaf-pill" class="pill pill-muted" type="button">som</button>
-          <div id="presence-pill" class="pill pill-muted">sozinho</div>
-          <div id="room-pill" class="pill">Corredor</div>
-          <div id="tv-audio" class="tv-audio hidden">
-            <button id="tv-audio-mute" class="pill pill-muted" type="button">TV mudo</button>
-            <input
-              id="tv-audio-volume"
-              class="tv-audio-slider"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value="80"
-              aria-label="Volume da TV"
-            />
-          </div>
-        </div>
-      </header>
-
       <div id="game">
         <div id="tv-screens" aria-hidden="true"></div>
         <div id="media-stage" aria-hidden="true"></div>
@@ -113,15 +82,22 @@
           </form>
         </aside>
 
-        <aside id="customizer" class="panel hidden" aria-label="Customizar avatar">
+        <aside id="customizer" class="panel panel-avatar hidden" aria-label="Customizar avatar">
           <div class="panel-head">
-            <h2>Avatar</h2>
+            <h2>Personagem</h2>
             <button id="close-customizer" type="button" class="ghost">Fechar</button>
           </div>
+          <button type="button" id="avatar-preview-wrap" class="avatar-preview" aria-label="Pré-visualização. Clique para girar.">
+            <canvas id="avatar-preview" width="96" height="160"></canvas>
+            <span>clique para girar</span>
+          </button>
           <label class="field">
             Nome
             <input id="name-input" type="text" maxlength="18" autocomplete="off" />
           </label>
+          <p class="customizer-label">Cores</p>
+          <div id="color-controls" class="color-controls"></div>
+          <p class="customizer-label">Peças</p>
           <div id="layer-controls" class="layer-controls"></div>
           <button id="randomize" type="button">Aleatório</button>
         </aside>
@@ -159,19 +135,120 @@
         </form>
       </div>
 
-      <footer id="hintbar" class="hintbar">
-        <span><kbd>WASD</kbd> andar</span>
-        <span><kbd>Shift</kbd> correr</span>
-        <span><kbd>clique</kbd> andar</span>
-        <span><kbd>E</kbd> sentar / TV / fliperama</span>
-        <span><kbd>G</kbd> acenar</span>
-        <span><kbd>C</kbd> avatar</span>
-        <span><kbd>F</kbd> móveis</span>
-        <span><kbd>Enter</kbd> falar</span>
-        <span><kbd>M</kbd> mic</span>
-        <span><kbd>V</kbd> câmera</span>
-        <span><kbd>K</kbd> som</span>
-        <span><kbd>scroll</kbd> zoom</span>
+      <footer class="dock">
+        <div class="dock-slot dock-slot-left">
+          <div id="tv-audio" class="tv-audio hidden">
+            <button id="tv-audio-mute" class="pill pill-muted" type="button">TV mudo</button>
+            <input
+              id="tv-audio-volume"
+              class="tv-audio-slider"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="80"
+              aria-label="Volume da TV"
+            />
+          </div>
+        </div>
+        <div class="call-controls" role="toolbar" aria-label="Controles de chamada">
+          <button
+            id="mic-pill"
+            class="call-btn is-off"
+            type="button"
+            aria-pressed="false"
+            aria-label="Microfone mudo"
+            title="Microfone (M)"
+          >
+            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a3.2 3.2 0 0 0-3.2 3.2v6.1a3.2 3.2 0 1 0 6.4 0V6.2A3.2 3.2 0 0 0 12 3Z" />
+              <path d="M7 11.2a5 5 0 0 0 10 0" />
+              <path d="M12 16.2V21" />
+            </svg>
+            <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a3.2 3.2 0 0 0-3.2 3.2v6.1a3.2 3.2 0 0 0 .5 1.7" />
+              <path d="M15.2 9.4V6.2A3.2 3.2 0 0 0 12 3" />
+              <path d="M17 11.2a5 5 0 0 1-8.3 3.8" />
+              <path d="M12 16.2V21" />
+              <path d="M4.5 4.5l15 15" />
+            </svg>
+          </button>
+          <button
+            id="deaf-pill"
+            class="call-btn"
+            type="button"
+            aria-pressed="false"
+            aria-label="Ouvir"
+            title="Ouvir (K)"
+          >
+            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 13a8 8 0 0 1 16 0" />
+              <path d="M4 13v5.2A1.8 1.8 0 0 0 5.8 20H8v-7H5.8A1.8 1.8 0 0 0 4 13Z" />
+              <path d="M20 13v5.2A1.8 1.8 0 0 1 18.2 20H16v-7h2.2A1.8 1.8 0 0 1 20 13Z" />
+            </svg>
+            <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 13a8 8 0 0 1 16 0" />
+              <path d="M4 13v5.2A1.8 1.8 0 0 0 5.8 20H8v-7H5.8A1.8 1.8 0 0 0 4 13Z" />
+              <path d="M20 13v5.2A1.8 1.8 0 0 1 18.2 20H16v-7h2.2A1.8 1.8 0 0 1 20 13Z" />
+              <path d="M4.5 4.5l15 15" />
+            </svg>
+          </button>
+          <button
+            id="cam-pill"
+            class="call-btn is-off"
+            type="button"
+            aria-pressed="false"
+            aria-label="Câmera desligada"
+            title="Câmera (V)"
+          >
+            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="7" width="12.5" height="10" rx="2.2" />
+              <path d="M15.5 10.2 21 7.4v9.2l-5.5-2.8Z" />
+            </svg>
+            <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="7" width="12.5" height="10" rx="2.2" />
+              <path d="M15.5 10.2 21 7.4v9.2l-5.5-2.8Z" />
+              <path d="M4.5 4.5l15 15" />
+            </svg>
+          </button>
+          <button
+            id="share-pill"
+            class="call-btn"
+            type="button"
+            aria-pressed="false"
+            aria-label="Compartilhar tela"
+            title="Compartilhar tela"
+          >
+            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="13" rx="2.2" />
+              <path d="M8 21h8" />
+              <path d="M12 17v4" />
+              <path d="M12 8.2v5" />
+              <path d="M9.6 10.4 12 8.2l2.4 2.2" />
+            </svg>
+          </button>
+        </div>
+        <div class="dock-slot dock-slot-right">
+          <button
+            id="help-btn"
+            class="dock-help"
+            type="button"
+            aria-expanded="false"
+            aria-controls="help-panel"
+            aria-label="Atalhos"
+            title="Atalhos"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8.2" />
+              <path d="M12 16.4v.2" />
+              <path d="M10.2 9.3a1.8 1.8 0 1 1 2.5 1.65c-.5.28-.9.86-.9 1.45v.5" />
+            </svg>
+          </button>
+          <div id="help-panel" class="help-panel hidden" role="dialog" aria-label="Atalhos">
+            <p class="help-title">Atalhos</p>
+            <div id="help-hints" class="help-hints"></div>
+          </div>
+        </div>
       </footer>
     </div>
     <canvas id="avatar-proof" width="128" height="128" aria-hidden="true"></canvas>

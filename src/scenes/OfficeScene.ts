@@ -88,10 +88,6 @@ import { distanceToPlace, isNearTv, listTvs, nearestTv, tvAt, type TvSpot } from
 import type { VoicePlace } from '../audio/spatial';
 
 type KeyMap = {
-  W: Phaser.Input.Keyboard.Key;
-  A: Phaser.Input.Keyboard.Key;
-  S: Phaser.Input.Keyboard.Key;
-  D: Phaser.Input.Keyboard.Key;
   E: Phaser.Input.Keyboard.Key;
   G: Phaser.Input.Keyboard.Key;
   C: Phaser.Input.Keyboard.Key;
@@ -166,7 +162,6 @@ export class OfficeScene extends Phaser.Scene {
   private ghost!: BuildGhost;
   private keys!: KeyMap;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private lastRoom = '';
   private walkable: boolean[][] = [];
   private floor: boolean[][] = [];
   private wall: boolean[][] = [];
@@ -317,7 +312,7 @@ export class OfficeScene extends Phaser.Scene {
     const keyboard = this.input.keyboard;
     if (!keyboard) throw new Error('Keyboard plugin missing');
     this.cursors = keyboard.createCursorKeys();
-    this.keys = keyboard.addKeys('W,A,S,D,E,G,C,F,R,X,V') as KeyMap;
+    this.keys = keyboard.addKeys('E,G,C,F,R,X,V') as KeyMap;
     this.input.mouse?.disableContextMenu();
     const unbindFields = allowTypingInFields(keyboard);
 
@@ -350,6 +345,8 @@ export class OfficeScene extends Phaser.Scene {
     );
 
     keyboard.on('keydown-ESC', () => {
+      if (this.hud.closeHelp()) return;
+      if (this.mediaStage.collapse()) return;
       if (this.arcadeOverlay.isOpen()) {
         void this.exitArcadeOverlay();
         return;
@@ -394,15 +391,12 @@ export class OfficeScene extends Phaser.Scene {
         this.replaceTvs(tvs);
         this.replaceSharedFurniture(furniture);
         this.applyGameSessions(games);
-        this.refreshPresenceHud();
       },
       onJoin: (peer) => {
         this.upsertRemote(peer);
-        this.refreshPresenceHud();
       },
       onLeave: (guestId) => {
         this.removeRemote(guestId);
-        this.refreshPresenceHud();
       },
       onState: (guestId, pose) => this.applyRemoteState(guestId, pose),
       onMeta: (guestId, name, appearance) => {
@@ -418,7 +412,6 @@ export class OfficeScene extends Phaser.Scene {
       onStatus: (status) => {
         this.presenceStatus = status;
         if (status === 'offline') this.clearRemotes();
-        this.refreshPresenceHud();
       },
     });
     this.presence.connect({
@@ -517,12 +510,6 @@ export class OfficeScene extends Phaser.Scene {
         npc.idle();
       }
       npc.syncPosition();
-    }
-
-    const room = roomAt(this.player.root.x, this.player.root.y);
-    if (room.name !== this.lastRoom) {
-      this.lastRoom = room.name;
-      this.hud.setRoom(room.name);
     }
   }
 
@@ -719,10 +706,10 @@ export class OfficeScene extends Phaser.Scene {
     if (this.hud.isTyping()) return null;
     let x = 0;
     let y = 0;
-    if (this.cursors.left.isDown || this.keys.A.isDown) x -= 1;
-    if (this.cursors.right.isDown || this.keys.D.isDown) x += 1;
-    if (this.cursors.up.isDown || this.keys.W.isDown) y -= 1;
-    if (this.cursors.down.isDown || this.keys.S.isDown) y += 1;
+    if (this.cursors.left.isDown) x -= 1;
+    if (this.cursors.right.isDown) x += 1;
+    if (this.cursors.up.isDown) y -= 1;
+    if (this.cursors.down.isDown) y += 1;
     if (x === 0 && y === 0) return null;
     if (x !== 0 && y !== 0) x = 0;
     return { x, y };
@@ -1159,10 +1146,6 @@ export class OfficeScene extends Phaser.Scene {
     this.remotes.clear();
   }
 
-  private refreshPresenceHud(): void {
-    this.hud.setPresence(this.presenceStatus, this.remotes.size + 1);
-  }
-
   private refreshVoiceHud(): void {
     this.voiceHud.render({
       status: this.voice.getStatus(),
@@ -1189,7 +1172,7 @@ export class OfficeScene extends Phaser.Scene {
       remote.setMicMuted(this.voice.isRemoteMuted(guestId));
     }
     this.player.setSpeaking(this.voice.isSpeaking(this.localGuestId));
-    this.player.setMicMuted(this.voice.getStatus() === 'live' && this.voice.isMicMuted());
+    this.player.setMicMuted(this.voice.isRemoteMuted(this.localGuestId));
     this.voice.tick(places);
     this.mediaStage.tick(this, this.voice.listTiles(), this.mediaAnchors(places));
   }

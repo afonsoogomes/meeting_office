@@ -15,10 +15,13 @@ export type Facing = (typeof FACINGS)[number];
 
 export type Appearance = {
   skin: number;
+  skinColor: number;
   hair: number;
   hairColor: number;
   shirt: number;
+  shirtColor: number;
   pants: number;
+  pantsColor: number;
   hat: number;
   accessory: number;
 };
@@ -126,16 +129,18 @@ export function sanitizeGuestId(value: unknown): string | null {
 export function sanitizeAppearance(value: unknown): Appearance | null {
   if (!isRecord(value)) return null;
   const skin = asNumber(value.skin, 0, 64);
+  const skinColor = asNumber(value.skinColor, 0, 64) ?? 0;
   const hair = asNumber(value.hair, 0, 64);
-  const hairColor = asNumber(value.hairColor, 0, 64);
+  const hairColor = asNumber(value.hairColor, 0, 64) ?? 0;
   const shirt = asNumber(value.shirt, 0, 64);
+  const shirtColor = asNumber(value.shirtColor, 0, 64) ?? 0;
   const pants = asNumber(value.pants, 0, 64);
+  const pantsColor = asNumber(value.pantsColor, 0, 64) ?? 0;
   const hat = asNumber(value.hat, 0, 64);
   const accessory = asNumber(value.accessory, 0, 64);
   if (
     skin === null ||
     hair === null ||
-    hairColor === null ||
     shirt === null ||
     pants === null ||
     hat === null ||
@@ -143,7 +148,7 @@ export function sanitizeAppearance(value: unknown): Appearance | null {
   ) {
     return null;
   }
-  return { skin, hair, hairColor, shirt, pants, hat, accessory };
+  return { skin, skinColor, hair, hairColor, shirt, shirtColor, pants, pantsColor, hat, accessory };
 }
 
 export function sanitizePose(value: unknown): Pose | null {

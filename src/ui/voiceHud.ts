@@ -28,28 +28,65 @@ export class VoiceHud {
     camera: boolean;
     screen: boolean;
   }): void {
-    if (this.mic instanceof HTMLElement) {
-      this.mic.classList.toggle('pill-muted', state.status !== 'live' || state.muted);
-      this.mic.classList.toggle('pill-live', state.status === 'live' && !state.muted);
-      if (state.status === 'off') this.mic.textContent = 'voz off';
-      else if (state.status === 'connecting') this.mic.textContent = 'voz…';
-      else if (state.muted) this.mic.textContent = 'mic mudo';
-      else if (state.speaking) this.mic.textContent = 'falando';
-      else this.mic.textContent = 'mic';
-    }
-    if (this.deaf instanceof HTMLElement) {
-      this.deaf.classList.toggle('pill-muted', state.deaf || state.status !== 'live');
-      this.deaf.textContent = state.deaf ? 'sem som' : 'som';
-    }
-    if (this.camera instanceof HTMLElement) {
-      this.camera.classList.toggle('pill-muted', !state.camera);
-      this.camera.classList.toggle('pill-live', state.camera);
-      this.camera.textContent = state.camera ? 'câmera on' : 'câmera';
-    }
-    if (this.share instanceof HTMLElement) {
-      this.share.classList.toggle('pill-muted', !state.screen);
-      this.share.classList.toggle('pill-live', state.screen);
-      this.share.textContent = state.screen ? 'tela on' : 'tela';
-    }
+    const live = state.status === 'live';
+    const micOff = state.status !== 'live' || state.muted;
+    const micLabel =
+      state.status === 'connecting'
+        ? 'Conectando microfone…'
+        : micOff
+          ? 'Microfone mudo'
+          : state.speaking
+            ? 'Microfone ligado, falando'
+            : 'Microfone ligado';
+
+    setCallButton(this.mic, {
+      off: micOff,
+      busy: state.status === 'connecting',
+      speaking: live && !state.muted && state.speaking,
+      pressed: live && !state.muted,
+      label: micLabel,
+      title: 'Microfone (M)',
+    });
+    setCallButton(this.deaf, {
+      off: state.deaf,
+      pressed: state.deaf,
+      label: state.deaf ? 'Som desligado' : 'Ouvir',
+      title: 'Ouvir (K)',
+    });
+    setCallButton(this.camera, {
+      off: !state.camera,
+      pressed: state.camera,
+      label: state.camera ? 'Câmera ligada' : 'Câmera desligada',
+      title: 'Câmera (V)',
+    });
+    setCallButton(this.share, {
+      off: false,
+      on: state.screen,
+      pressed: state.screen,
+      label: state.screen ? 'Parar de compartilhar a tela' : 'Compartilhar tela',
+      title: 'Compartilhar tela',
+    });
   }
+}
+
+function setCallButton(
+  node: Element | null,
+  state: {
+    off: boolean;
+    on?: boolean;
+    busy?: boolean;
+    speaking?: boolean;
+    pressed: boolean;
+    label: string;
+    title: string;
+  },
+): void {
+  if (!(node instanceof HTMLElement)) return;
+  node.classList.toggle('is-off', state.off);
+  node.classList.toggle('is-on', state.on === true);
+  node.classList.toggle('is-busy', state.busy === true);
+  node.classList.toggle('is-speaking', state.speaking === true);
+  node.setAttribute('aria-pressed', state.pressed ? 'true' : 'false');
+  node.setAttribute('aria-label', state.label);
+  node.title = `${state.title} — ${state.label}`;
 }

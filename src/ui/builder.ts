@@ -18,7 +18,7 @@ export class BuilderPanel {
   private readonly catalogEl = document.querySelector('#builder-catalog')!;
   private readonly groupsEl = document.querySelector('#builder-groups')!;
   private readonly searchEl = document.querySelector('#builder-search') as HTMLInputElement;
-  private readonly hintbar = document.querySelector('#hintbar')!;
+  private readonly hintsEl = document.querySelector('#help-hints');
   private selected = 'chair';
   private group: FurnitureGroup | 'all' = 'seat';
   private scene: Phaser.Scene | null = null;
@@ -27,6 +27,7 @@ export class BuilderPanel {
 
   constructor(handlers: BuilderHandlers) {
     this.handlers = handlers;
+    this.setHints(false);
 
     document.querySelector('#close-builder')?.addEventListener('click', () => {
       this.handlers.onClose();
@@ -130,7 +131,8 @@ export class BuilderPanel {
   }
 
   private setHints(building: boolean): void {
-    this.hintbar.replaceChildren();
+    if (!(this.hintsEl instanceof HTMLElement)) return;
+    this.hintsEl.replaceChildren();
     const hints = building
       ? [
           ['F / Esc', 'sair'],
@@ -140,13 +142,17 @@ export class BuilderPanel {
           ['X', 'apagar'],
         ]
       : [
-          ['WASD', 'andar'],
-          ['Shift', 'correr'],
           ['clique', 'andar'],
-          ['E', 'sentar'],
+          ['setas', 'andar'],
+          ['Shift', 'correr'],
+          ['E', 'sentar / TV / fliperama'],
           ['G', 'acenar'],
           ['C', 'avatar'],
           ['F', 'móveis'],
+          ['Enter', 'falar'],
+          ['M', 'mic'],
+          ['V', 'câmera'],
+          ['K', 'ouvir'],
           ['scroll', 'zoom'],
         ];
     for (const [key, label] of hints) {
@@ -154,7 +160,7 @@ export class BuilderPanel {
       const kbd = document.createElement('kbd');
       kbd.textContent = key;
       span.append(kbd, ` ${label}`);
-      this.hintbar.append(span);
+      this.hintsEl.append(span);
     }
   }
 }

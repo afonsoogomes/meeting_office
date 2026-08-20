@@ -13,19 +13,46 @@ type Wrapper = {
   root: HTMLDivElement;
   video: HTMLVideoElement;
   label: HTMLSpanElement;
+  expand: HTMLButtonElement;
 };
 
 const CAMERA = { w: 80, h: 80 };
 const SCREEN = { w: 256, h: 144 };
 
+const EXPAND_ICON = `
+  <svg class="icon-expand" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M8.2 3.5H3.5V8.2" />
+    <path d="M15.8 3.5h4.7V8.2" />
+    <path d="M8.2 20.5H3.5v-4.7" />
+    <path d="M15.8 20.5h4.7v-4.7" />
+  </svg>
+  <svg class="icon-collapse" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9.5 3.5v5h-5" />
+    <path d="M14.5 3.5v5h5" />
+    <path d="M9.5 20.5v-5h-5" />
+    <path d="M14.5 20.5v-5h5" />
+  </svg>
+`;
+
 export class MediaStage {
   private readonly root: HTMLElement;
   private readonly wrappers = new Map<string, Wrapper>();
+  private expanded: string | null = null;
 
   constructor() {
     const root = document.querySelector('#media-stage');
     if (!(root instanceof HTMLElement)) throw new Error('media stage markup missing');
     this.root = root;
+  }
+
+  isExpanded(): boolean {
+    return this.expanded !== null;
+  }
+
+  collapse(): boolean {
+    if (!this.expanded) return false;
+    this.setExpanded(null);
+    return true;
   }
 
   tick(scene: Phaser.Scene, tiles: MediaTile[], anchors: Map<string, MediaAnchor>): void {
@@ -40,19 +67,39 @@ export class MediaStage {
       live.add(key);
       const anchor = anchors.get(tile.guestId);
       const wrapper = this.ensure(key, tile);
-      if (!anchor || !anchor.visible) {
+      const expanded = this.expanded === key;
+      const visible = Boolean(anchor && (anchor.visible || expanded));
+      if (!visible) {
         wrapper.root.style.display = 'none';
         continue;
       }
+
+      const name = anchor?.name ?? '';
+      wrapper.root.style.display = 'block';
+      wrapper.root.classList.toggle('media-tile-expanded', expanded);
+      wrapper.expand.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+      wrapper.expand.setAttribute('aria-label', expanded ? 'Recolher' : 'Expandir');
+      wrapper.expand.title = expanded ? 'Recolher' : 'Expandir';
+
+      if (expanded) {
+        wrapper.root.style.left = '';
+        wrapper.root.style.top = '';
+        wrapper.root.style.width = '';
+        wrapper.root.style.height = '';
+        wrapper.label.textContent = tile.kind === 'screen' ? `Tela · ${name}` : name;
+        wrapper.label.style.display = name ? 'block' : 'none';
+        wrapper.video.classList.toggle('media-mirror', tile.kind === 'camera' && tile.local);
+        continue;
+      }
+
       const size = tile.kind === 'screen' ? SCREEN : CAMERA;
       const lift = tile.kind === 'screen' ? 118 : sharing.has(tile.guestId) ? 52 : 78;
-      const point = worldToCanvas(scene, anchor.x, anchor.y - lift);
-      wrapper.root.style.display = 'block';
+      const point = worldToCanvas(scene, anchor!.x, anchor!.y - lift);
       wrapper.root.style.width = `${size.w}px`;
       wrapper.root.style.height = `${size.h}px`;
       wrapper.root.style.left = `${Math.round(point.x - size.w / 2)}px`;
       wrapper.root.style.top = `${Math.round(point.y - size.h)}px`;
-      wrapper.label.textContent = tile.kind === 'screen' ? `Tela · ${anchor.name}` : '';
+      wrapper.label.textContent = tile.kind === 'screen' ? `Tela · ${name}` : '';
       wrapper.label.style.display = tile.kind === 'screen' ? 'block' : 'none';
       wrapper.video.classList.toggle('media-mirror', tile.kind === 'camera' && tile.local);
     }
@@ -61,7 +108,17 @@ export class MediaStage {
       if (live.has(key)) continue;
       this.wrappers.get(key)?.root.remove();
       this.wrappers.delete(key);
+      if (this.expanded === key) this.setExpanded(null);
     }
+  }
+
+  private setExpanded(key: string | null): void {
+    this.expanded = key;
+    this.root.classList.toggle('has-expanded', key !== null);
+  }
+
+  private toggleExpanded(key: string): void {
+    this.setExpanded(this.expanded === key ? null : key);
   }
 
   private ensure(key: string, tile: MediaTile): Wrapper {
@@ -74,14 +131,26 @@ export class MediaStage {
       }
       return existing;
     }
+
     const root = document.createElement('div');
     root.className = `media-tile media-tile-${tile.kind}`;
     root.prepend(tile.element);
+
+    const expand = document.createElement('button');
+    expand.type = 'button';
+    expand.className = 'media-expand';
+    expand.innerHTML = EXPAND_ICON;
+    expand.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.toggleExpanded(key);
+    });
+
     const label = document.createElement('span');
     label.className = 'media-tile-label';
-    root.append(label);
+    root.append(expand, label);
     this.root.append(root);
-    const wrapper = { root, video: tile.element, label };
+
+    const wrapper: Wrapper = { root, video: tile.element, label, expand };
     this.wrappers.set(key, wrapper);
     return wrapper;
   }

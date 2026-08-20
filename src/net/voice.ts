@@ -40,7 +40,6 @@ export class VoiceClient {
   private readonly audios = new Map<string, { guestId: string; element: HTMLAudioElement }>();
   private readonly tiles = new Map<string, MediaTile>();
   private readonly speaking = new Set<string>();
-  private readonly remoteMuted = new Set<string>();
   private localId = '';
   private localName = '';
   private closed = false;
@@ -63,11 +62,21 @@ export class VoiceClient {
       else this.dropByKey(mediaKey(this.localId, kindFromSource(pub.source) ?? pub.source));
       this.onChange();
     });
-    this.room.on(RoomEvent.TrackMuted, (_pub, participant) => this.refreshMuted(participant.identity));
-    this.room.on(RoomEvent.TrackUnmuted, (_pub, participant) => this.refreshMuted(participant.identity));
-    this.room.on(RoomEvent.ParticipantConnected, (participant) => this.refreshMuted(participant.identity));
+    this.room.on(RoomEvent.TrackMuted, (pub, participant) => {
+      const kind = kindFromSource(pub.source);
+      if (kind) {
+        pub.track?.detach();
+        this.dropByKey(mediaKey(participant.identity, kind));
+      }
+      this.onChange();
+    });
+    this.room.on(RoomEvent.TrackUnmuted, (pub, participant) => {
+      if (pub.track) this.attach(pub.track, pub.source, participant.identity, participant.identity === this.localId);
+      this.onChange();
+    });
+    this.room.on(RoomEvent.TrackPublished, () => this.onChange());
+    this.room.on(RoomEvent.ParticipantConnected, () => this.onChange());
     this.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-      this.remoteMuted.delete(participant.identity);
       this.speaking.delete(participant.identity);
       this.dropParticipant(participant.identity);
       this.onChange();
@@ -114,11 +123,15 @@ export class VoiceClient {
   }
 
   isRemoteMuted(guestId: string): boolean {
-    return this.remoteMuted.has(guestId);
+    const participant = this.participantOf(guestId);
+    if (!participant) return false;
+    const mic = participant.getTrackPublication(Track.Source.Microphone);
+    if (!mic) return false;
+    return mic.isMuted || !participant.isMicrophoneEnabled;
   }
 
   listTiles(): MediaTile[] {
-    return [...this.tiles.values()];
+    return [...this.tiles.values()].filter((tile) => this.isVideoLive(tile));
   }
 
   prepare(guestId: string, name: string): void {
@@ -169,6 +182,7 @@ export class VoiceClient {
     } catch {
       return;
     }
+    if (!this.isCameraEnabled()) this.dropByKey(mediaKey(this.localId, 'camera'));
     this.onChange();
   }
 
@@ -183,6 +197,7 @@ export class VoiceClient {
     } catch {
       return;
     }
+    if (!this.isScreenShareEnabled()) this.dropByKey(mediaKey(this.localId, 'screen'));
     this.onChange();
   }
 
@@ -226,6 +241,20 @@ export class VoiceClient {
         void (pub as RemoteTrackPublication).setSubscribed(same);
       }
     }
+  }
+
+  private participantOf(guestId: string) {
+    if (guestId === this.localId) {
+      return this.room.state === ConnectionState.Connected ? this.room.localParticipant : undefined;
+    }
+    return this.room.remoteParticipants.get(guestId);
+  }
+
+  private isVideoLive(tile: MediaTile): boolean {
+    const participant = this.participantOf(tile.guestId);
+    if (!participant) return false;
+    if (tile.kind === 'camera') return participant.isCameraEnabled;
+    return participant.isScreenShareEnabled;
   }
 
   private attach(track: Track, source: Track.Source, guestId: string, local: boolean): void {
@@ -301,18 +330,6 @@ export class VoiceClient {
     this.audios.clear();
     for (const tile of this.tiles.values()) tile.element.remove();
     this.tiles.clear();
-  }
-
-  private refreshMuted(identity: string): void {
-    if (identity === this.localId) {
-      this.onChange();
-      return;
-    }
-    const participant = this.room.remoteParticipants.get(identity);
-    const mic = participant?.getTrackPublication(Track.Source.Microphone);
-    if (!participant || !mic || mic.isMuted) this.remoteMuted.add(identity);
-    else this.remoteMuted.delete(identity);
-    this.onChange();
   }
 
   private setStatus(status: VoiceStatus): void {
