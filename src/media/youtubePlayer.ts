@@ -7,6 +7,7 @@ type YtPlayer = {
   mute: () => void;
   unMute: () => void;
   setVolume: (value: number) => void;
+  setSize?: (width: number, height: number) => void;
   loadVideoById: (videoId: string) => void;
   destroy: () => void;
   getIframe?: () => HTMLIFrameElement;
@@ -68,6 +69,7 @@ function loadYouTubeApi(): Promise<YtNamespace> {
 
 export type YouTubeHandle = {
   applyAudio: (audio: TvAudioState) => void;
+  setSize: (width: number, height: number) => void;
   destroy: () => void;
 };
 
@@ -122,6 +124,13 @@ export async function mountYouTubePlayer(
     applyAudio(next) {
       pending = { ...next };
       apply();
+    },
+    setSize(width, height) {
+      try {
+        player?.setSize?.(Math.round(width), Math.round(height));
+      } catch {
+        /* player not ready */
+      }
     },
     destroy() {
       ready = false;

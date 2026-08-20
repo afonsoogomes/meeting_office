@@ -168,7 +168,17 @@ test('play config is host for P1 and guest for P2, without trusting the client',
   assert.equal(host.netplayPassword, guest.netplayPassword);
   assert.equal(host.netplayRoomId, null);
   assert.equal(host.netplayPort, 3000);
+  assert.equal(host.multitap, false);
   err(games.playConfig({ sessionId: created.id, guestId: C }), 'NOT_IN_SESSION', 403);
+});
+
+test('bomberman play config enables snes multitap', () => {
+  const games = service();
+  const created = data(games.create({ guestId: A, name: 'Afonso', gameId: 'super-bomberman-5' }));
+  data(games.start({ sessionId: created.id, guestId: A }));
+  const host = data(games.playConfig({ sessionId: created.id, guestId: A }));
+  assert.equal(host.multitap, true);
+  assert.ok(host.playerCount >= 5);
 });
 
 test('only the host can publish the EmulatorJS room id', () => {

@@ -330,6 +330,7 @@ export class GamesService {
       playerNumber: player.playerNumber,
       playerCount: session.data.maxPlayers + MAX_GAME_SPECTATORS,
       playerName: player.name,
+      multitap: game.multitap === true,
       netplayRoomId: session.data.netplayRoomId,
       netplayPassword: session.data.netplayPassword,
       netplayRoomName: `${game.name} · ${session.data.id.slice(0, 8)}`,

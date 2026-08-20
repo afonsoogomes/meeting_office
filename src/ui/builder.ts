@@ -143,7 +143,7 @@ export class BuilderPanel {
         ]
       : [
           ['clique', 'andar'],
-          ['setas', 'andar'],
+          ['WASD / setas', 'andar'],
           ['Shift', 'correr'],
           ['E', 'sentar / TV / fliperama'],
           ['G', 'acenar'],

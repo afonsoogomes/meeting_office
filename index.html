@@ -104,14 +104,16 @@
       </div>
 
       <div id="arcade-overlay" class="arcade-overlay hidden" aria-label="Emulador">
-        <div class="arcade-overlay-bar">
-          <div>
-            <strong id="arcade-overlay-title">Fliperama</strong>
-            <p id="arcade-overlay-slot">Player</p>
+        <div class="arcade-stage">
+          <iframe id="arcade-frame" title="EmulatorJS" allow="gamepad; fullscreen; autoplay"></iframe>
+          <div class="arcade-overlay-bar">
+            <div>
+              <strong id="arcade-overlay-title">Fliperama</strong>
+              <p id="arcade-overlay-slot">Player</p>
+            </div>
+            <button id="arcade-overlay-leave" type="button">Voltar ao escritório</button>
           </div>
-          <button id="arcade-overlay-leave" type="button">Voltar ao escritório</button>
         </div>
-        <iframe id="arcade-frame" title="EmulatorJS" allow="gamepad; fullscreen; autoplay"></iframe>
       </div>
 
       <div id="gate" class="gate hidden" role="dialog" aria-labelledby="gate-title">

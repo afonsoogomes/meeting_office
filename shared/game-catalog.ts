@@ -13,6 +13,8 @@ export const GAME_CATALOG: GameDefinition[] = [
     romFile: 'snes/super-bomberman-5.smc',
     minPlayers: 1,
     maxPlayers: 5,
+    /** Super Multitap on SNES port 2 — P1 on port 1, P2–P5 on the tap. */
+    multitap: true,
     ejsGameId: 3,
   },
   {

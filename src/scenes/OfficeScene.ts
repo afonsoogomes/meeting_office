@@ -95,6 +95,10 @@ type KeyMap = {
   R: Phaser.Input.Keyboard.Key;
   X: Phaser.Input.Keyboard.Key;
   V: Phaser.Input.Keyboard.Key;
+  W: Phaser.Input.Keyboard.Key;
+  A: Phaser.Input.Keyboard.Key;
+  S: Phaser.Input.Keyboard.Key;
+  D: Phaser.Input.Keyboard.Key;
 };
 
 const ARRIVE = 4;
@@ -219,14 +223,18 @@ export class OfficeScene extends Phaser.Scene {
     });
     this.voice = new VoiceClient(() => this.refreshVoiceHud());
     this.voice.prepare(this.localGuestId, avatar.name);
-    this.mediaStage = new MediaStage();
+    this.mediaStage = new MediaStage({
+      onExpand: () => this.tvScreens?.collapse(),
+    });
     this.chat = new RoomChat((text) => this.sendChat(text));
     this.builder = new BuilderPanel({
       onSelect: (id) => this.ghost.setItem(id),
       onReset: () => this.resetFurniture(),
       onClose: () => this.setBuildMode(false),
     });
-    this.tvScreens = new TvScreens();
+    this.tvScreens = new TvScreens({
+      onExpand: () => this.mediaStage.collapse(),
+    });
     this.tvAudio = new TvAudioHud({
       onChange: (audio) => this.tvScreens.setAudio(audio),
     });
@@ -312,7 +320,7 @@ export class OfficeScene extends Phaser.Scene {
     const keyboard = this.input.keyboard;
     if (!keyboard) throw new Error('Keyboard plugin missing');
     this.cursors = keyboard.createCursorKeys();
-    this.keys = keyboard.addKeys('E,G,C,F,R,X,V') as KeyMap;
+    this.keys = keyboard.addKeys('E,G,C,F,R,X,V,W,A,S,D') as KeyMap;
     this.input.mouse?.disableContextMenu();
     const unbindFields = allowTypingInFields(keyboard);
 
@@ -346,6 +354,7 @@ export class OfficeScene extends Phaser.Scene {
 
     keyboard.on('keydown-ESC', () => {
       if (this.hud.closeHelp()) return;
+      if (this.tvScreens.collapse()) return;
       if (this.mediaStage.collapse()) return;
       if (this.arcadeOverlay.isOpen()) {
         void this.exitArcadeOverlay();
@@ -706,10 +715,10 @@ export class OfficeScene extends Phaser.Scene {
     if (this.hud.isTyping()) return null;
     let x = 0;
     let y = 0;
-    if (this.cursors.left.isDown) x -= 1;
-    if (this.cursors.right.isDown) x += 1;
-    if (this.cursors.up.isDown) y -= 1;
-    if (this.cursors.down.isDown) y += 1;
+    if (this.cursors.left.isDown || this.keys.A.isDown) x -= 1;
+    if (this.cursors.right.isDown || this.keys.D.isDown) x += 1;
+    if (this.cursors.up.isDown || this.keys.W.isDown) y -= 1;
+    if (this.cursors.down.isDown || this.keys.S.isDown) y += 1;
     if (x === 0 && y === 0) return null;
     if (x !== 0 && y !== 0) x = 0;
     return { x, y };

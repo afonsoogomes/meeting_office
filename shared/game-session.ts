@@ -27,6 +27,8 @@ export type GameDefinition = {
   romFile: string;
   minPlayers?: number;
   maxPlayers: number;
+  /** Super Multitap on SNES port 2 (Bomberman 5, etc.). */
+  multitap?: boolean;
   ejsGameId: number;
 };
 
@@ -82,6 +84,8 @@ export type EmulatorSessionConfig = {
   playerNumber: number;
   playerCount: number;
   playerName: string;
+  /** Host core must expose 5 joypads; guests still send pad index 0–4. */
+  multitap: boolean;
   netplayRoomId: string | null;
   netplayPassword: string;
   netplayRoomName: string;

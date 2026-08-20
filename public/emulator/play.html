@@ -139,7 +139,12 @@
         };
         window.EJS_netplayServer = cfg.netplayServer || defaultNetplayServer(cfg);
         window.EJS_netplayICEServers = cfg.iceServers;
+        window.EJS_multitap = Boolean(cfg.multitap);
+        window.EJS_defaultOptions = Object.assign({}, window.EJS_defaultOptions, {
+          'controller-port-device-p2': cfg.multitap ? String(SNES_MULTITAP_DEVICE) : '1',
+        });
         window.EJS_onGameStart = () => {
+          if (cfg.multitap) enableSnesMultitap(window.EJS_emulator);
           parent.postMessage({ type: 'office-emulator-playing' }, window.location.origin);
           void bootNetplay(cfg);
         };
@@ -198,6 +203,7 @@
           showNetplayHint('EmulatorJS não subiu.');
           return;
         }
+        if (cfg.multitap) enableSnesMultitap(emu);
         const np = await waitFor(() => netplayApi(emu), 8000);
         if (!np) {
           showNetplayHint('Netplay indisponível nesta build — o jogo local continua.');
@@ -327,6 +333,33 @@
           script.onerror = () => reject(new Error('socket.io'));
           document.head.append(script);
         });
+      }
+
+      /** libretro `RETRO_DEVICE_JOYPAD_MULTITAP` — Super Multitap on SNES port 2. */
+      const SNES_MULTITAP_DEVICE = 257;
+
+      function enableSnesMultitap(emu) {
+        const gm = emu && emu.gameManager;
+        if (!gm || typeof gm.setControllerPortDevice !== 'function') return;
+        let deviceId = SNES_MULTITAP_DEVICE;
+        try {
+          const info = typeof gm.getControllerPortInfo === 'function' ? gm.getControllerPortInfo() : '';
+          if (typeof info === 'string') {
+            for (const line of info.split('\n')) {
+              const parts = line.split(':');
+              if (parts.length < 3 || parts[0] !== '1') continue;
+              if (!/multitap/i.test(parts.slice(2).join(':'))) continue;
+              const parsed = Number(parts[1]);
+              if (Number.isFinite(parsed)) {
+                deviceId = parsed;
+                break;
+              }
+            }
+          }
+        } catch {
+          /* WASM antigo sem a export */
+        }
+        gm.setControllerPortDevice(1, deviceId);
       }
 
       function defaultNetplayServer(cfg) {
