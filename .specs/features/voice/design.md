@@ -31,7 +31,8 @@ flowchart LR
 
 - Mesma `RoomId` (`office`, `meeting`, `hall`, `lounge`, `cafe`): volume 1
 - Sala diferente: 0 (outro canal)
-- `deaf`: volume 0 via LiveKit `setVolume` (não `HTMLAudioElement.muted` — Safari pausa o elemento e não retoma)
+- `deaf`: volume 0 via LiveKit `setVolume`, e unsubscribe do mic remoto no iPad (HTMLAudio, como o Meet)
+- iPad noutro app: `webAudioMix: false` para o iOS tratar a voz como média em reprodução (AudioContext suspende; `<audio>` não)
 
 ## LiveKit local
 
@@ -44,3 +45,4 @@ flowchart LR
 | SFU down | HUD “voz off”; movimento/chat intactos |
 | Mic negado | Fica mudo, ainda ouve os outros |
 | Autoplay bloqueado | `room.startAudio()` no primeiro clique |
+| iPad noutro app | Voz em `<audio>` HTML (como o Meet), não Web Audio. iOS pode manter a chamada; se interromper, retoma ao voltar |

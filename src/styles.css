@@ -325,6 +325,27 @@ button.dock-help:focus-visible {
   pointer-events: none;
 }
 
+.voice-resume {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 11;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(18, 22, 32, 0.92);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.voice-resume:hover {
+  background: #273049;
+}
+
 .media-tile {
   position: absolute;
   overflow: hidden;
