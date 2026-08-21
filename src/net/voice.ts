@@ -1,5 +1,6 @@
 import {
   ConnectionState,
+  RemoteAudioTrack,
   Room,
   RoomEvent,
   Track,
@@ -24,10 +25,18 @@ type VoiceSession = {
   token: string;
 };
 
+type AudioSlot = {
+  key: string;
+  guestId: string;
+  element: HTMLAudioElement;
+  track: Track;
+};
+
 export class VoiceClient {
   private readonly room = new Room({
     dynacast: true,
     adaptiveStream: true,
+    webAudioMix: true,
     audioCaptureDefaults: {
       echoCancellation: true,
       noiseSuppression: true,
@@ -37,14 +46,18 @@ export class VoiceClient {
       resolution: VideoPresets.h360.resolution,
     },
   });
-  private readonly audios = new Map<string, { guestId: string; element: HTMLAudioElement }>();
+  private readonly audios = new Map<string, AudioSlot>();
   private readonly tiles = new Map<string, MediaTile>();
   private readonly speaking = new Set<string>();
+  private readonly lastGain = new Map<string, number>();
+  private readonly appliedVolume = new Map<string, number>();
+  private readonly playAfter = new WeakMap<HTMLAudioElement, number>();
   private localId = '';
   private localName = '';
   private closed = false;
   private deaf = false;
   private status: VoiceStatus = 'off';
+  private resuming = false;
 
   constructor(private readonly onChange: () => void) {
     this.room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
@@ -91,8 +104,12 @@ export class VoiceClient {
       if (!this.closed) this.setStatus('off');
     });
     this.room.on(RoomEvent.Reconnecting, () => this.setStatus('connecting'));
-    this.room.on(RoomEvent.Reconnected, () => this.setStatus('live'));
+    this.room.on(RoomEvent.Reconnected, () => {
+      this.setStatus('live');
+      void this.resumePlayback();
+    });
     this.room.on(RoomEvent.MediaDevicesError, () => this.onChange());
+    document.addEventListener('visibilitychange', this.onPageVisible);
   }
 
   getStatus(): VoiceStatus {
@@ -143,6 +160,7 @@ export class VoiceClient {
     this.localId = guestId;
     this.localName = name;
     this.closed = false;
+    document.addEventListener('visibilitychange', this.onPageVisible);
     if (this.room.state === ConnectionState.Connected) {
       this.setStatus('live');
       return;
@@ -152,6 +170,7 @@ export class VoiceClient {
       const session = await fetchSession(guestId, name);
       await this.room.connect(session.url, session.token);
       this.setStatus('live');
+      void this.resumePlayback();
     } catch {
       this.setStatus('off');
     }
@@ -163,6 +182,7 @@ export class VoiceClient {
     } catch {
       return;
     }
+    for (const slot of this.audios.values()) this.playIfPaused(slot.element);
   }
 
   async toggleMute(): Promise<void> {
@@ -204,22 +224,21 @@ export class VoiceClient {
   toggleDeaf(): void {
     this.deaf = !this.deaf;
     this.onChange();
+    if (!this.deaf) void this.resumePlayback();
   }
 
   tick(places: Map<string, VoicePlace>): void {
     const local = places.get(this.localId);
     if (!local) return;
     this.syncSubscriptions(places, local.roomId);
-    for (const { guestId, element } of this.audios.values()) {
-      const remote = places.get(guestId);
-      const gain = guestId === this.localId ? 0 : remote ? voiceGain(local, remote) : 0;
-      element.volume = this.deaf ? 0 : gain;
-      element.muted = this.deaf || gain <= 0.001;
+    for (const slot of this.audios.values()) {
+      this.applyGain(slot, this.gainFor(slot.guestId, places, local));
     }
   }
 
   disconnect(): void {
     this.closed = true;
+    document.removeEventListener('visibilitychange', this.onPageVisible);
     this.dropAll();
     this.room.disconnect();
     this.setStatus('off');
@@ -273,6 +292,7 @@ export class VoiceClient {
   }
 
   private attachAudio(track: Track, source: Track.Source, guestId: string): void {
+    if (guestId === this.localId) return;
     const key = mediaKey(guestId, source);
     this.dropByKey(key);
     const element = track.attach();
@@ -285,7 +305,10 @@ export class VoiceClient {
     element.setAttribute('playsinline', 'true');
     element.style.display = 'none';
     document.body.append(element);
-    this.audios.set(key, { guestId, element });
+    const slot: AudioSlot = { key, guestId, element, track };
+    element.addEventListener('pause', this.onAudioPause);
+    this.audios.set(key, slot);
+    this.playIfPaused(element);
   }
 
   private attachVideo(track: Track, source: Track.Source, guestId: string, local: boolean): void {
@@ -309,8 +332,10 @@ export class VoiceClient {
   private dropByKey(key: string): void {
     const audio = this.audios.get(key);
     if (audio) {
+      audio.element.removeEventListener('pause', this.onAudioPause);
       audio.element.remove();
       this.audios.delete(key);
+      this.appliedVolume.delete(key);
     }
     const tile = this.tiles.get(key);
     if (tile) {
@@ -323,11 +348,17 @@ export class VoiceClient {
     for (const key of [...this.audios.keys(), ...this.tiles.keys()]) {
       if (key.startsWith(`${guestId}|`)) this.dropByKey(key);
     }
+    this.lastGain.delete(guestId);
   }
 
   private dropAll(): void {
-    for (const { element } of this.audios.values()) element.remove();
+    for (const slot of this.audios.values()) {
+      slot.element.removeEventListener('pause', this.onAudioPause);
+      slot.element.remove();
+    }
     this.audios.clear();
+    this.appliedVolume.clear();
+    this.lastGain.clear();
     for (const tile of this.tiles.values()) tile.element.remove();
     this.tiles.clear();
   }
@@ -335,6 +366,59 @@ export class VoiceClient {
   private setStatus(status: VoiceStatus): void {
     this.status = status;
     this.onChange();
+  }
+
+  private gainFor(guestId: string, places: Map<string, VoicePlace>, local: VoicePlace): number {
+    const remote = places.get(guestId);
+    if (!remote) return this.lastGain.get(guestId) ?? 1;
+    const gain = voiceGain(local, remote);
+    this.lastGain.set(guestId, gain);
+    return gain;
+  }
+
+  private applyGain(slot: AudioSlot, gain: number): void {
+    const volume = this.deaf ? 0 : gain;
+    if (this.appliedVolume.get(slot.key) !== volume) {
+      this.appliedVolume.set(slot.key, volume);
+      if (slot.track instanceof RemoteAudioTrack) slot.track.setVolume(volume);
+      else slot.element.volume = volume;
+    }
+    this.playIfPaused(slot.element);
+  }
+
+  private playIfPaused(element: HTMLAudioElement): void {
+    if (this.closed || !element.paused) return;
+    const key = element.getAttribute('data-voice');
+    if (!key || this.audios.get(key)?.element !== element) return;
+    const now = performance.now();
+    const waitUntil = this.playAfter.get(element) ?? 0;
+    if (now < waitUntil) return;
+    this.playAfter.set(element, now + 500);
+    void element.play().catch(() => {
+      void this.resumePlayback();
+    });
+  }
+
+  private readonly onAudioPause = (event: Event): void => {
+    if (!(event.target instanceof HTMLAudioElement)) return;
+    this.playIfPaused(event.target);
+  };
+
+  private readonly onPageVisible = (): void => {
+    if (document.visibilityState === 'visible') void this.resumePlayback();
+  };
+
+  private async resumePlayback(): Promise<void> {
+    if (this.closed || this.resuming || this.room.state !== ConnectionState.Connected) return;
+    this.resuming = true;
+    try {
+      await this.room.startAudio();
+      for (const slot of this.audios.values()) this.playIfPaused(slot.element);
+    } catch {
+      return;
+    } finally {
+      this.resuming = false;
+    }
   }
 }
 

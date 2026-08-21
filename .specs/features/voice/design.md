@@ -31,7 +31,7 @@ flowchart LR
 
 - Mesma `RoomId` (`office`, `meeting`, `hall`, `lounge`, `cafe`): volume 1
 - Sala diferente: 0 (outro canal)
-- `deaf`: `HTMLAudioElement.muted = true`
+- `deaf`: volume 0 via LiveKit `setVolume` (não `HTMLAudioElement.muted` — Safari pausa o elemento e não retoma)
 
 ## LiveKit local
 

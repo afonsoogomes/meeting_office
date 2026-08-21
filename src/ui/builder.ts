@@ -142,10 +142,12 @@ export class BuilderPanel {
           ['X', 'apagar'],
         ]
       : [
-          ['clique', 'andar'],
+          ['clique', 'andar / usar'],
+          ['arrastar', 'mapa'],
+          ['joystick', 'andar no telemóvel'],
           ['WASD / setas', 'andar'],
           ['Shift', 'correr'],
-          ['E', 'sentar / TV / fliperama'],
+          ['E', 'usar perto'],
           ['G', 'acenar'],
           ['C', 'avatar'],
           ['F', 'móveis'],

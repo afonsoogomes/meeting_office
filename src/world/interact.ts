@@ -1,10 +1,11 @@
-import { TILE_SIZE } from './constants';
 import {
   footprintCells,
   furnitureKind,
   furniturePlaceKey,
   occupantSlots,
   placedSize,
+  slotAnchor,
+  slotWorld,
   type FurnitureFacing,
   type FurniturePlace,
 } from './furniture';
@@ -97,7 +98,7 @@ export function isNearSeat(tile: TilePos, seat: Seat): boolean {
 
 const SIT_OFFSET: Record<FurnitureFacing, { x: number; y: number; depthBias: number }> = {
   down: { x: 0, y: -8, depthBias: 20 },
-  up: { x: 0, y: -10, depthBias: -18 },
+  up: { x: 0, y: -8, depthBias: -18 },
   left: { x: 6, y: -4, depthBias: 20 },
   right: { x: -6, y: -4, depthBias: 20 },
 };
@@ -147,8 +148,6 @@ export function claimSeat(
   const group = seats.filter((seat) => seat.placeKey === preferred.placeKey);
   const free = group.filter((seat) => !occupied.has(seat.id));
   if (free.length === 0) return null;
-  const fresh = group.find((seat) => seat.id === preferred.id);
-  if (fresh && !occupied.has(fresh.id)) return fresh;
   return nearestSeat(free, near, 99) ?? free[0];
 }
 
@@ -167,20 +166,15 @@ function seatAtAnchor(seats: Seat[], x: number, y: number, maxPx = OCCUPY_PX): S
 }
 
 function slotOrigin(seat: Seat): { x: number; y: number } {
-  const size = placedSize(seat.place);
-  const t = ((seat.slot + 0.5) / seat.slots) * size.w;
-  return {
-    x: (seat.place.col + t) * TILE_SIZE,
-    y: (seat.place.row + size.h) * TILE_SIZE,
-  };
+  return slotWorld(seat.place, seat.slot, seat.slots);
 }
 
 function slotTile(place: FurniturePlace, slot: number, slots: number): TilePos {
   const size = placedSize(place);
-  const t = ((slot + 0.5) / slots) * size.w;
+  const anchor = slotAnchor(place, slot, slots);
   return {
-    col: place.col + Math.min(size.w - 1, Math.floor(t)),
-    row: place.row,
+    col: place.col + Math.min(size.w - 1, Math.max(0, Math.floor(anchor.u * size.w - 1e-6))),
+    row: place.row + Math.min(size.h - 1, Math.max(0, Math.floor(anchor.v * size.h - 1e-6))),
   };
 }
 

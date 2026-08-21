@@ -52,24 +52,102 @@ O builder marca essas células como chão. Os batentes sul viram `cap-sw` / `cap
 
 ## 4. Móveis
 
-Cada peça no mapa é só `{ item, col, row }`. `col`/`row` é o tile **noroeste** do pé no chão. Tamanho, colisão e se é tapete vêm do catálogo (`CATALOG` em `src/world/furniture.ts`, gerado em `furnitureData.ts` a partir de `furniture.png`).
+Cada peça no mapa é só `{ item, col, row }` (e `facing` se girar). `col`/`row` é o tile **noroeste** do pé no chão. Tamanho, colisão, ação e lugares vêm do **catálogo**, não do mapa.
 
-O modo **F** lista ~330 peças em abas (assentos, mesas, armários, cozinha, plantas, luzes, decoração, parede, tapetes, camas). Cadeiras, bancos, poltronas e sofás têm `use: 'sit'`.
+- Peças geradas do `furniture.png`: `src/world/furnitureData.ts` (`scripts/gen-furniture-catalog.py`).
+- Peças à mão (TV, fliperama, cozinha, vasos): `EXTRAS` em `src/world/furniture.ts`.
+- Recortes de sprite: [../sprites/ATLAS.md](../sprites/ATLAS.md).
+
+O modo **F** lista o catálogo em abas. Preview no cursor; clique esquerdo coloca se `canPlace` for verdadeiro; `R` / scroll / direito gira; `X` apaga.
+
+### 4.1 Catálogo — o que preencher
+
+```ts
+{
+  id: 'sofa',
+  label: 'Sofá azul',
+  group: 'seat',
+  w: 3, h: 1,             // footprint virado para baixo (tiles)
+  collide: true,
+  layer: 'object',        // floor | object | wall
+  use: 'sit',             // omitir = só decoração
+  slots: 2,               // opcional; ver defaults abaixo
+  slotAnchors: [          // opcional; ver §4.3
+    { u: 0.25, v: 1 },
+    { u: 0.75, v: 1 },
+  ],
+  side: { w: 2, h: 1 },   // footprint quando facing left/right
+  sprites: { down: 'sofa', right: 'sofa-right', up: 'sofa-up' },
+}
+```
+
+`use`:
+
+| `use` | Ação | Hover | Quem escolhe o lugar |
+| --- | --- | --- | --- |
+| `sit` | Sentar (`E` / clique) | Retângulo do móvel inteiro | O jogo (slot livre mais perto) |
+| `sleep` | Deitar | Idem | Idem |
+| `watch` | TV | Idem | — |
+| `play` | Fliperama | Idem | — |
+| (ausente) | Nenhuma | Tile de chão, se walkable | — |
+
+O jogador **não escolhe o quadradinho**. Clicar em qualquer tile do sofá é “sentar neste móvel”. `WASD` ou `E` de novo levanta.
+
+### 4.2 Quantos lugares (`slots`)
+
+`slots` é **pessoas**, não tiles. Um sofá 3×1 tem 3 tiles de colisão e **2** lugares.
+
+Defaults em `occupantSlots` / `withSitLayout` (`src/world/furniture.ts`) se o catálogo não declarar `slots` nem `slotAnchors`:
+
+| Peça | Footprint `w` (frente) | `side` | Lugares |
+| --- | --- | --- | --- |
+| Cadeira, banqueta, trono | 1 | — | 1 |
+| Poltrona larga | ≥ 2 | não | 1 |
+| Banco | 2 | sim | 2 |
+| Sofá | 3 | sim | 2 |
+| Sofá grande | ≥ 4 | sim | 3 |
+| Cama | &lt; 3 | — | 1 |
+| Cama de casal | ≥ 3 | — | 2 |
+
+O número **não muda** ao girar o móvel (sofá de lado continua com 2 lugares, mesmo com footprint 2×1).
+
+Se o default falhar no sprite novo, declare `slots` (e de preferência `slotAnchors`) no `CatalogEntry`. Não gere um slot por tile.
+
+### 4.3 Onde o boneco senta (`slotAnchors`)
+
+Coordenadas no footprint **virado para baixo**, 0–1:
+
+- `u` — esquerda → direita
+- `v` — norte → sul (**1 = frente do assento**, borda sul)
+
+O código roda estes pontos com `facing`. Sem `slotAnchors`, sofás/bancos espalham os lugares na frente (`v = 1`). Cadeira e poltrona de 1 lugar ficam no assento (`u = 0.5`, `v = 1`) em qualquer rotação — senão a cadeira virada à mesa senta a pessoa em cima do tampo.
+
+Sofá 3 tiles / 2 almofadas:
+
+```ts
+slotAnchors: [
+  { u: 0.25, v: 1 },
+  { u: 0.75, v: 1 },
+]
+```
+
+Checklist ao adicionar um assento ou cama:
+
+1. `w`/`h` = colisão no chão, não o número de pessoas.
+2. `use: 'sit'` ou `'sleep'`.
+3. `slots` = quantas pessoas cabem no desenho (almofadas / colchões).
+4. Se as pessoas não caírem no sítio certo, `slotAnchors` com um `{ u, v }` por lugar.
+5. Sofá/banco com sprite de lado: `side: { w, h }` + `sprites.right` (esquerda espelha).
+6. Testar: hover cobre o móvel todo; 2.ª pessoa senta no outro lugar; 3.ª vê **Lotado**.
+
+Peças de **parede** (`layer: 'wall'`): só no papel norte (`role === 'back'`). Não ocupam piso. Móveis altos (`fridge`, `tv`, `bookshelf`) ficam na **primeira linha do piso**; a sprite sobe no papel sozinha.
 
 ```ts
 { item: 'fridge', col: 24, row: 23 }
 { item: 'chair', col: 30, row: 9, facing: 'up' }
-...desk(7, 6)       // escrivaninha 2×1 + cadeira virada para a mesa
-...tableSet(29, 8)  // mesa 4×1 + 4 cadeiras (cada uma para a mesa)
+...desk(7, 6)
+...tableSet(29, 8)
 ```
-
-Cadeira, poltrona e sofá têm `use: 'sit'` no catálogo. Sofá e banco geram **um slot por tile de largura** (sofá 3×1 = 3 lugares; de lado 2×1 = 2). Poltrona larga (2 tiles, sem variante `side`) é 1 lugar. Cama simples 1 lugar, cama de casal 2. O jogador clica no móvel ou aperta `E` ao lado: anda até a frente do **slot** e senta/deita nele. Slot ocupado por outra pessoa não aceita mais ninguém; se o móvel ainda tiver vaga, a pessoa vai para o slot livre mais perto. `WASD` ou `E` de novo levanta.
-
-Peças de **parede** (quadros, janelas, arandelas, decalques, plantas de parede) têm `layer: 'wall'`. No modo `F` elas só encaixam no papel norte do cômodo (`role === 'back'`): clique no papel para escolher a altura, ou no chão da mesma coluna que a peça sobe sozinha para a parede. Não ocupam piso nem bloqueiam passagem; podem coexistir com uma mesa encostada na parede.
-
-Móveis altos (`fridge`, `tv`, `bookshelf`) ficam na **primeira linha do piso**; a sprite sobe por cima do papel sozinha.
-
-No jogo, `F` abre o catálogo. O preview segue o mouse (encaixado no tile noroeste). Clique esquerdo coloca se `canPlace` for verdadeiro — chão para móveis, papel norte para quadros — sem sobrepor outra peça da mesma camada. `R`, scroll ou clique direito gira; sofá de lado vira 2×1. `X` apaga a peça sob o cursor.
 
 ## 5. Ligar no jogo
 

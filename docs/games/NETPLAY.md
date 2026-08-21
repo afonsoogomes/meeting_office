@@ -46,17 +46,17 @@ npm run dev
 
 Docker Compose sobe **livekit** e **netplay**. Sem Docker, o script tenta `node infra/emulatorjs-netplay/server.js`.
 
-Abra duas abas (dois `guestId`). `E` no fliperama → **Criar sala** / **Entrar** / **Assistir** → Pronto (se fores jogar) → **Abrir fliperama** (o clique é o gesto do browser).
+Abra duas abas (dois `guestId`). `E` no fliperama → **Criar sala** / **Entrar** / **Assistir** → **Estou pronto** (se fores jogar). Quando a partida arranca, o emulador abre sozinho.
 
-Dá para **começar sozinho** (host: **Começar agora**). Várias salas do mesmo jogo podem existir ao mesmo tempo. **Assistir** entra no stream do host sem ocupar P1–P5; o teclado do espectador é bloqueado. O EmulatorJS não tem modo watch nativo — o espectador só entra na sala Netplay **depois** de todos os jogadores estarem ligados, para não roubar o slot P2+.
+Dá para **começar sozinho** (host: **Começar**). Várias salas do mesmo jogo podem existir ao mesmo tempo. **Assistir** entra no stream do host sem ocupar P1–P5; o teclado do espectador é bloqueado. O EmulatorJS não tem modo watch nativo — o espectador só entra na sala Netplay **depois** de todos os jogadores estarem ligados, para não roubar o slot P2+.
 
 ## Teste manual P1 / P2
 
-1. Aba A: **Criar sala** (`snes-2p`, Kart ou Bomberman). Você é Player 1. **Começar agora** se quiseres solo.
+1. Aba A: **Criar sala** (`snes-2p`, Kart ou Bomberman). Você é Player 1. **Começar** se quiseres solo.
 2. Aba B: **Entrar** nessa sala (não numa nova). Você é Player 2. Ou **Assistir** para só ver.
 3. Os jogadores marcam **Estou pronto** (não precisa se fores o host a começar sozinho).
-4. Aba A: **Abrir fliperama** → Começar. A sala Netplay é publicada no Nest.
-5. Aba B (jogador): **Abrir fliperama** → Começar. Entra na mesma sala (password da sessão).
+4. Aba A: **Começar** (só se a sala ainda não estiver cheia). O emulador abre em todos.
+5. Aba B (jogador): o jogo abre sozinho e entra na mesma sala Netplay.
 6. Aba C (espectador): espera os jogadores abrirem → **Assistir**.
 7. Confirme na barra: Player 1 no Netplay / Player 2 no Netplay / A assistir.
 8. **Voltar ao escritório** encerra (host) ou sai (guest / espectador).
@@ -96,6 +96,8 @@ NETPLAY_ICE_JSON=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:seu-turn
 Não sobe coturn no compose por omissão.
 
 `EJS_CDN` default: `https://cdn.emulatorjs.org/latest/data/` (`latest` acompanha o `main`; no CDN **não existe** `/main/`). A stable 4.2.3 **não** expõe `netplayOpenRoom` (issue #1185).
+
+No Super Bomberman 5 o SNES só destrava 3PLAYER–5PLAYER como **MAN** com Super Multitap na porta 2. O core `snes9x` do canal `latest` **não exporta** `ejs_set_controller_port_device`; o iframe pede o core em `4.3.0-pre` (e grava `input_libretro_device_p2 = 257` no `retroarch.cfg`). Sem isso o ecrã de select só deixa COM/OFF no 3PLAYER — as três janelas mostram o mesmo ecrã porque os convidados recebem o vídeo do host.
 
 ## Segurança
 

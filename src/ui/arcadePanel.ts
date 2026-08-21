@@ -27,7 +27,6 @@ export class ArcadePanel {
   private readonly errorEl: HTMLElement;
   private readonly createBtn: HTMLButtonElement;
   private readonly readyBtn: HTMLButtonElement;
-  private readonly startBtn: HTMLButtonElement;
   private readonly playBtn: HTMLButtonElement;
   private readonly leaveBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
@@ -47,7 +46,6 @@ export class ArcadePanel {
     const errorEl = document.querySelector('#arcade-error');
     const createBtn = document.querySelector('#arcade-create');
     const readyBtn = document.querySelector('#arcade-ready');
-    const startBtn = document.querySelector('#arcade-start');
     const playBtn = document.querySelector('#arcade-play');
     const leaveBtn = document.querySelector('#arcade-leave-lobby');
     const cancelBtn = document.querySelector('#arcade-cancel');
@@ -60,7 +58,6 @@ export class ArcadePanel {
       !(errorEl instanceof HTMLElement) ||
       !(createBtn instanceof HTMLButtonElement) ||
       !(readyBtn instanceof HTMLButtonElement) ||
-      !(startBtn instanceof HTMLButtonElement) ||
       !(playBtn instanceof HTMLButtonElement) ||
       !(leaveBtn instanceof HTMLButtonElement) ||
       !(cancelBtn instanceof HTMLButtonElement)
@@ -75,7 +72,6 @@ export class ArcadePanel {
     this.errorEl = errorEl;
     this.createBtn = createBtn;
     this.readyBtn = readyBtn;
-    this.startBtn = startBtn;
     this.playBtn = playBtn;
     this.leaveBtn = leaveBtn;
     this.cancelBtn = cancelBtn;
@@ -88,8 +84,10 @@ export class ArcadePanel {
       this.handlers.onCreate(this.selectedGameId);
     });
     readyBtn.addEventListener('click', () => this.handlers.onReady());
-    startBtn.addEventListener('click', () => this.handlers.onStart());
-    playBtn.addEventListener('click', () => this.handlers.onOpenEmulator());
+    playBtn.addEventListener('click', () => {
+      if (this.canHostStart()) this.handlers.onStart();
+      else this.handlers.onOpenEmulator();
+    });
     leaveBtn.addEventListener('click', () => this.handlers.onLeave());
     cancelBtn.addEventListener('click', () => this.handlers.onCancel());
     document.querySelector('#close-arcade')?.addEventListener('click', () => this.setOpen(false));
@@ -200,36 +198,35 @@ export class ArcadePanel {
       }
     }
 
-    const othersReady = seated
-      .filter((player) => player.guestId !== this.guestId)
-      .every((player) => player.status === 'ready');
-    const canHostStart =
-      Boolean(host) &&
-      session?.status === 'waiting' &&
-      seated.length >= (session.minPlayers ?? 1) &&
-      othersReady;
+    const canHostStart = this.canHostStart();
+    const showPlay = Boolean(
+      inSession && session && (canHostStart || (spectator ? watchReady : canPlay)),
+    );
 
     this.createBtn.classList.toggle('hidden', Boolean(session));
     this.readyBtn.classList.toggle('hidden', !inSession || spectator || !session || session.status !== 'waiting');
-    this.startBtn.classList.toggle('hidden', !canHostStart);
-    this.playBtn.classList.toggle(
-      'hidden',
-      !inSession ||
-        !session ||
-        (spectator ? !watchReady : !canPlay),
-    );
+    this.playBtn.classList.toggle('hidden', !showPlay);
     this.leaveBtn.classList.toggle('hidden', !inSession);
     this.cancelBtn.classList.toggle('hidden', !host || !session || session.status === 'playing');
 
     this.createBtn.disabled = this.busy || !this.selectedGameId;
     this.readyBtn.disabled = this.busy || me?.status === 'ready' || me?.status === 'connected';
-    this.startBtn.disabled = this.busy;
     this.playBtn.disabled = this.busy;
     this.leaveBtn.disabled = this.busy;
     this.cancelBtn.disabled = this.busy;
 
     this.readyBtn.textContent = me?.status === 'ready' ? 'Pronto' : 'Estou pronto';
-    this.playBtn.textContent = spectator ? 'Assistir' : 'Abrir fliperama';
+    this.playBtn.textContent = spectator ? 'Assistir' : canHostStart ? 'Começar' : 'Jogar';
+  }
+
+  private canHostStart(): boolean {
+    const session = this.session;
+    if (!session || session.hostGuestId !== this.guestId || session.status !== 'waiting') return false;
+    const seated = seatedPlayers(session.players);
+    if (seated.length < (session.minPlayers ?? 1)) return false;
+    return seated
+      .filter((player) => player.guestId !== this.guestId)
+      .every((player) => player.status === 'ready');
   }
 
   private renderRooms(): void {

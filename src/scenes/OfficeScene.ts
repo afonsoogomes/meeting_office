@@ -18,13 +18,13 @@ import {
   watchGameSession,
   GamesApiError,
 } from '../net/games';
-import type { GameCatalogItem, GameSessionView } from '../../shared/game-session';
-import { isActiveSession } from '../../shared/game-session';
-import { VoiceClient } from '../net/voice';
+import { isActiveSession, isWatchReady, type GameCatalogItem, type GameSessionView } from '../../shared/game-session';
 import type { FurniturePlacement, Peer, Pose, TvScreen } from '../../shared/protocol';
+import { VoiceClient } from '../net/voice';
 import { BuilderPanel } from '../ui/builder';
 import { RoomChat } from '../ui/chat';
 import { Hud } from '../ui/hud';
+import { WalkJoystick } from '../ui/joystick';
 import { TvAudioHud } from '../ui/tvAudio';
 import { ArcadePanel } from '../ui/arcadePanel';
 import { ArcadeOverlay } from '../ui/arcadeOverlay';
@@ -41,6 +41,7 @@ import {
   furnitureAt,
   liftWallHangings,
   nextFacing,
+  placeWorldRect,
   snapWallPlace,
   type FurniturePlace,
 } from '../world/furniture';
@@ -103,6 +104,7 @@ type KeyMap = {
 
 const ARRIVE = 4;
 const POSE_MS = 80;
+const PAN_THRESHOLD = 6;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 4.5;
 const ZOOM_DEFAULT = 1.5;
@@ -156,6 +158,7 @@ export class OfficeScene extends Phaser.Scene {
   private lastPoseAt = 0;
   private lastPoseJson = '';
   private hud!: Hud;
+  private joystick!: WalkJoystick;
   private chat!: RoomChat;
   private builder!: BuilderPanel;
   private tvPanel!: TvPanel;
@@ -171,7 +174,7 @@ export class OfficeScene extends Phaser.Scene {
   private wall: boolean[][] = [];
   private furniture: FurniturePlace[] = [];
   private furnitureImages: Phaser.GameObjects.Image[] = [];
-  private hover!: Phaser.GameObjects.Image;
+  private hover!: Phaser.GameObjects.Graphics;
   private path: TilePos[] = [];
   private lastGood = { x: 0, y: 0 };
   private seats: Seat[] = [];
@@ -186,8 +189,13 @@ export class OfficeScene extends Phaser.Scene {
   private gameSessions: GameSessionView[] = [];
   private gameCatalog: GameCatalogItem[] = [];
   private playPoll = 0;
-  private usePrompt!: Phaser.GameObjects.Text;
+  private arcadeLaunching = false;
+  private arcadeDismissedId: string | null = null;
   private zoomTarget = ZOOM_DEFAULT;
+  private panning = false;
+  private pointerPanned = false;
+  private cameraFree = false;
+  private panFrom = { x: 0, y: 0 };
 
   constructor() {
     super('office');
@@ -220,6 +228,9 @@ export class OfficeScene extends Phaser.Scene {
         void this.voice.unlock();
         void this.voice.toggleScreenShare();
       },
+    });
+    this.joystick = new WalkJoystick(() => {
+      void this.voice.unlock();
     });
     this.voice = new VoiceClient(() => this.refreshVoiceHud());
     this.voice.prepare(this.localGuestId, avatar.name);
@@ -267,22 +278,10 @@ export class OfficeScene extends Phaser.Scene {
     this.walkable = this.makeWalkable(grid);
     drawHouse(this, getBuiltHouse());
 
-    this.hover = this.add.image(0, 0, 'tile-hover').setOrigin(0.5, 0.5).setDepth(2).setVisible(false);
+    this.hover = this.add.graphics().setDepth(2).setVisible(false);
     this.redrawFurniture(false);
     this.ghost = new BuildGhost(this);
     this.builder.fillIcons(this);
-    this.usePrompt = this.add
-      .text(0, 0, '', {
-        fontFamily: 'Pixelify Sans, monospace',
-        fontSize: '11px',
-        color: '#f7f3ea',
-        stroke: '#1a1410',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5, 1)
-      .setResolution(2)
-      .setDepth(10000)
-      .setVisible(false);
 
     const spawn = SPAWN;
     this.player = new Character(this, spawn.x, spawn.y, {
@@ -333,8 +332,14 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       if (!pointer.leftButtonDown()) return;
-      this.clickTile(pointer);
+      if (this.arcadeOverlay.isOpen()) return;
+      this.beginPointer(pointer);
     });
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (this.panning && pointer.isDown) this.panCamera(pointer);
+    });
+    this.input.on('pointerup', () => this.endPointer());
+    this.input.on('pointerupoutside', () => this.endPointer());
 
     this.input.on(
       'wheel',
@@ -434,12 +439,14 @@ export class OfficeScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off('resize', this.onGameResize, this);
       unbindFields();
+      this.joystick.destroy();
       this.presence.disconnect();
       this.voice.disconnect();
       this.stopPlayPoll();
       this.arcadeOverlay.close();
     });
     this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+      this.joystick.destroy();
       this.presence.disconnect();
       this.voice.disconnect();
       this.stopPlayPoll();
@@ -450,7 +457,9 @@ export class OfficeScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     this.tickZoom(delta);
     this.updateHover();
-    this.updateUsePrompt();
+    this.joystick.setBlocked(
+      this.builder.isOpen() || this.arcadeOverlay.isOpen() || this.hud.isTyping(),
+    );
     if (this.builder.isOpen()) this.tvScreens.hide();
     else this.tvScreens.tick(this);
 
@@ -467,6 +476,7 @@ export class OfficeScene extends Phaser.Scene {
     const held = this.readMove();
     const running = this.isRunning();
     if (held) {
+      this.followPlayer();
       this.path = [];
       this.pendingSeat = null;
       this.pendingTv = null;
@@ -567,7 +577,7 @@ export class OfficeScene extends Phaser.Scene {
       this.pendingSeat = null;
       this.pendingTv = null;
       this.pendingArcade = null;
-      this.hover.setVisible(false);
+      this.hover.clear().setVisible(false);
       this.ghost.setItem(this.builder.selectedId());
     } else {
       this.ghost.hide();
@@ -708,11 +718,13 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private isRunning(): boolean {
-    return !this.hud.isTyping() && this.cursors.shift.isDown;
+    return this.joystick.sprinting() || (!this.hud.isTyping() && this.cursors.shift.isDown);
   }
 
   private readMove(): { x: number; y: number } | null {
     if (this.hud.isTyping()) return null;
+    const stick = this.joystick.vector();
+    if (stick) return stick;
     let x = 0;
     let y = 0;
     if (this.cursors.left.isDown || this.keys.A.isDown) x -= 1;
@@ -759,6 +771,47 @@ export class OfficeScene extends Phaser.Scene {
     return worldToTile(world.x, world.y);
   }
 
+  private beginPointer(pointer: Phaser.Input.Pointer): void {
+    this.panning = true;
+    this.pointerPanned = false;
+    this.panFrom = { x: pointer.x, y: pointer.y };
+  }
+
+  private panCamera(pointer: Phaser.Input.Pointer): void {
+    const dx = pointer.position.x - pointer.prevPosition.x;
+    const dy = pointer.position.y - pointer.prevPosition.y;
+    if (dx === 0 && dy === 0) return;
+    if (!this.pointerPanned) {
+      if (Math.hypot(pointer.x - this.panFrom.x, pointer.y - this.panFrom.y) < PAN_THRESHOLD) return;
+      this.pointerPanned = true;
+      this.detachCamera();
+    }
+    const cam = this.cameras.main;
+    cam.setScroll(cam.scrollX - dx / cam.zoom, cam.scrollY - dy / cam.zoom);
+    this.game.canvas.style.cursor = 'grabbing';
+  }
+
+  private endPointer(): void {
+    if (!this.panning) return;
+    const panned = this.pointerPanned;
+    this.panning = false;
+    this.pointerPanned = false;
+    if (panned || this.hud.isTyping() || this.builder.isOpen() || this.arcadeOverlay.isOpen()) return;
+    this.clickAt(this.panFrom.x, this.panFrom.y);
+  }
+
+  private detachCamera(): void {
+    if (this.cameraFree) return;
+    this.cameraFree = true;
+    this.cameras.main.stopFollow();
+  }
+
+  private followPlayer(): void {
+    if (!this.cameraFree) return;
+    this.cameraFree = false;
+    this.cameras.main.startFollow(this.player.root, false, 0.14, 0.14);
+  }
+
   private isOpen(tile: TilePos): boolean {
     return (
       tile.row >= 0 &&
@@ -771,62 +824,65 @@ export class OfficeScene extends Phaser.Scene {
 
   private updateHover(): void {
     if (this.builder.isOpen()) {
-      this.hover.setVisible(false);
+      this.hover.clear().setVisible(false);
       const draft = this.pointerDraft();
       this.ghost.show(draft, this.validDraft(draft));
       this.game.canvas.style.cursor = 'pointer';
       return;
     }
 
+    if (this.pointerPanned) {
+      this.hover.clear().setVisible(false);
+      this.game.canvas.style.cursor = 'grabbing';
+      return;
+    }
+
     const tile = this.pointerTile(this.input.activePointer);
     const seat = seatAt(this.seats, tile.col, tile.row);
     const tv = tvAt(this.tvs, tile.col, tile.row);
-    if (seat || tv || this.isOpen(tile)) {
+    const arcade = arcadeAt(this.arcades, tile.col, tile.row);
+    if (seat) {
+      this.showPlaceHover(seat.place);
+      this.game.canvas.style.cursor = 'pointer';
+      return;
+    }
+    if (tv) {
+      this.showPlaceHover(tv.place);
+      this.game.canvas.style.cursor = 'pointer';
+      return;
+    }
+    if (arcade) {
+      this.showPlaceHover(arcade.place);
+      this.game.canvas.style.cursor = 'pointer';
+      return;
+    }
+    if (this.isOpen(tile)) {
       const { x, y } = tileToWorld(tile.col, tile.row);
-      this.hover.setPosition(x, y).setVisible(true);
+      this.showTileHover(x, y);
       this.game.canvas.style.cursor = 'pointer';
       return;
     }
 
-    this.hover.setVisible(false);
-    this.game.canvas.style.cursor = 'default';
+    this.hover.clear().setVisible(false);
+    this.game.canvas.style.cursor = 'grab';
   }
 
-  private updateUsePrompt(): void {
-    if (this.builder.isOpen() || this.tvPanel.isOpen() || this.arcadePanel.isOpen() || this.arcadeOverlay.isOpen()) {
-      this.usePrompt.setVisible(false);
-      return;
-    }
-    if (this.seated) {
-      this.showPrompt('E  Levantar');
-      return;
-    }
-    const nearby = this.nearestUse();
-    if (nearby?.kind === 'seat') {
-      if (!this.pickSeat(nearby.seat)) {
-        this.showPrompt(`Lotado · ${nearby.seat.label}`);
-        return;
-      }
-      const verb = nearby.seat.use === 'sleep' ? 'Deitar' : 'Sentar';
-      this.showPrompt(`E  ${verb} · ${nearby.seat.label}`);
-      return;
-    }
-    if (nearby?.kind === 'tv') {
-      this.showPrompt(`E  Assistir · ${nearby.tv.label}`);
-      return;
-    }
-    if (nearby?.kind === 'arcade') {
-      this.showPrompt(`E  Jogar · ${nearby.arcade.label}`);
-      return;
-    }
-    this.usePrompt.setVisible(false);
+  private showPlaceHover(place: FurniturePlace): void {
+    const rect = placeWorldRect(place);
+    this.drawHover(rect.x, rect.y, rect.w, rect.h);
   }
 
-  private showPrompt(text: string): void {
-    this.usePrompt
-      .setText(text)
-      .setPosition(this.player.root.x, this.player.root.y - 72)
-      .setVisible(true);
+  private showTileHover(centerX: number, centerY: number): void {
+    this.drawHover(centerX - TILE_SIZE / 2, centerY - TILE_SIZE / 2, TILE_SIZE, TILE_SIZE);
+  }
+
+  private drawHover(x: number, y: number, w: number, h: number): void {
+    this.hover.clear();
+    this.hover.fillStyle(0xffffff, 0.14);
+    this.hover.fillRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2));
+    this.hover.lineStyle(2, 0xffffff, 1);
+    this.hover.strokeRect(x + 2, y + 2, Math.max(1, w - 4), Math.max(1, h - 4));
+    this.hover.setVisible(true);
   }
 
   private nearestUse():
@@ -874,19 +930,15 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private useSeat(seat: Seat): void {
+    if (this.seated?.placeKey === seat.placeKey) return;
     const target = this.pickSeat(seat);
     if (!target) return;
-    if (this.seated?.id === target.id) return;
 
     this.pendingTv = null;
     this.pendingArcade = null;
     this.tvPanel.setOpen(false);
     this.arcadePanel.setOpen(false);
 
-    if (this.seated?.placeKey === target.placeKey) {
-      this.sitOn(target);
-      return;
-    }
     if (this.seated) this.standUp();
 
     const start = worldToTile(this.player.root.x, this.player.root.y);
@@ -1027,23 +1079,30 @@ export class OfficeScene extends Phaser.Scene {
     this.flushPose(true);
   }
 
-  private clickTile(pointer: Phaser.Input.Pointer): void {
-    const goal = this.pointerTile(pointer);
+  private clickAt(x: number, y: number): void {
+    const world = this.cameras.main.getWorldPoint(x, y);
+    this.clickTileAt(worldToTile(world.x, world.y));
+  }
+
+  private clickTileAt(goal: TilePos): void {
     const clickedSeat = seatAt(this.seats, goal.col, goal.row);
     const clickedTv = tvAt(this.tvs, goal.col, goal.row);
     const clickedArcade = arcadeAt(this.arcades, goal.col, goal.row);
-    if (this.seated && clickedSeat?.id === this.seated.id) return;
+    if (this.seated && clickedSeat?.placeKey === this.seated.placeKey) return;
     if (clickedArcade) {
+      this.followPlayer();
       if (this.seated) this.standUp();
       this.useArcade(clickedArcade);
       return;
     }
     if (clickedTv) {
+      this.followPlayer();
       if (this.seated) this.standUp();
       this.useTv(clickedTv);
       return;
     }
     if (clickedSeat) {
+      this.followPlayer();
       this.useSeat(clickedSeat);
       return;
     }
@@ -1056,6 +1115,7 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
 
+    this.followPlayer();
     const next = path[0].col === start.col && path[0].row === start.row ? path.slice(1) : path;
     this.pendingSeat = null;
     this.pendingTv = null;
@@ -1234,8 +1294,23 @@ export class OfficeScene extends Phaser.Scene {
       this.gameSessions.find((session) => session.players.some((player) => player.guestId === this.localGuestId)) ??
       null;
     this.arcadePanel.setSessions(this.gameSessions, this.gameSession);
+    if (!this.gameSession || (this.arcadeDismissedId && this.arcadeDismissedId !== this.gameSession.id)) {
+      this.arcadeDismissedId = null;
+    }
     if (!this.gameSession && this.arcadeOverlay.isOpen()) this.arcadeOverlay.close();
-    if (this.arcadeOverlay.isOpen() && this.gameSession) void this.refreshPlayConfig();
+    if (this.shouldLaunchArcade()) void this.openArcadeEmulator();
+    else if (this.arcadeOverlay.isOpen() && this.gameSession) void this.refreshPlayConfig();
+  }
+
+  private shouldLaunchArcade(): boolean {
+    if (this.arcadeLaunching || this.arcadeOverlay.isOpen() || !this.gameSession) return false;
+    if (this.arcadeDismissedId === this.gameSession.id) return false;
+    const me = this.gameSession.players.find((player) => player.guestId === this.localGuestId);
+    if (!me || me.status === 'disconnected') return false;
+    const playing = this.gameSession.status === 'starting' || this.gameSession.status === 'playing';
+    if (!playing) return false;
+    if (me.role === 'spectator') return this.gameSession.watchReady || isWatchReady(this.gameSession);
+    return true;
   }
 
   private async openArcade(_arcade: ArcadeSpot): Promise<void> {
@@ -1286,6 +1361,7 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     await this.runArcadeAction(async () => {
+      if (this.gameSession) this.arcadeDismissedId = this.gameSession.id;
       const next = await leaveGameSession(this.gameSession!.id, this.localGuestId);
       this.arcadeOverlay.close();
       this.stopPlayPoll();
@@ -1303,6 +1379,7 @@ export class OfficeScene extends Phaser.Scene {
 
   private async exitArcadeOverlay(): Promise<void> {
     const session = this.gameSession;
+    if (session) this.arcadeDismissedId = session.id;
     this.arcadeOverlay.close();
     this.stopPlayPoll();
     if (!session) return;
@@ -1319,18 +1396,24 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private async openArcadeEmulator(): Promise<void> {
-    if (!this.gameSession) return;
+    if (!this.gameSession || this.arcadeLaunching) return;
+    this.arcadeDismissedId = null;
+    if (this.arcadeOverlay.isOpen()) {
+      void this.refreshPlayConfig();
+      return;
+    }
+    this.arcadeLaunching = true;
     this.arcadePanel.setBusy(true);
     this.arcadePanel.setError('');
     try {
       const config = await fetchPlayConfig(this.gameSession.id, this.localGuestId);
       this.arcadePanel.setOpen(false);
-      if (this.arcadeOverlay.isOpen()) this.arcadeOverlay.update(config);
-      else this.arcadeOverlay.open(config);
+      this.arcadeOverlay.open(config);
       this.startPlayPoll();
     } catch (error) {
       this.arcadePanel.setError(errorMessage(error));
     } finally {
+      this.arcadeLaunching = false;
       this.arcadePanel.setBusy(false);
     }
   }

@@ -40,7 +40,7 @@ curl -sS http://127.0.0.1:8787/games
 # Bomberman com "enabled": true e "maxPlayers": 5 se a ROM estiver no sítio
 ```
 
-No mapa: `E` no fliperama → **Criar sala** → **Começar agora** (solo) ou espera gente até 5 → **Abrir fliperama**.
+No mapa: `E` no fliperama → **Criar sala** → **Começar** (solo) ou espera gente → **Estou pronto** → o host carrega **Começar**. O emulador abre sozinho.
 
 ## 3. Variáveis
 

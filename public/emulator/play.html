@@ -86,6 +86,7 @@
       const start = document.querySelector('#start');
       let session = null;
       let started = false;
+      let joiningNetplay = false;
 
       window.addEventListener('message', (event) => {
         if (event.origin !== window.location.origin) return;
@@ -102,26 +103,28 @@
           session.role === 'spectator'
             ? `${session.gameName} · a assistir`
             : `${session.gameName} · você é Player ${session.playerNumber}`;
-        start.textContent = session.role === 'spectator' ? 'Assistir' : 'Começar';
-        start.hidden = false;
+        void beginPlay();
       });
 
-      start.addEventListener('click', () => {
+      start.addEventListener('click', () => void beginPlay());
+
+      parent.postMessage({ type: 'office-emulator-ready' }, window.location.origin);
+
+      function beginPlay() {
         if (!session || started) return;
         started = true;
         start.hidden = true;
         status.textContent = 'A carregar o EmulatorJS…';
         void bootEmulator(session);
-      });
-
-      parent.postMessage({ type: 'office-emulator-ready' }, window.location.origin);
+      }
 
       async function bootEmulator(cfg) {
-        const candidates = uniqueCdns([
-          cfg.ejsCdn,
-          'https://cdn.emulatorjs.org/latest/data/',
-          'https://cdn.emulatorjs.org/4.3.0-pre/data/',
-        ]);
+        const snesCoreCdn = 'https://cdn.emulatorjs.org/4.3.0-pre/data/';
+        const candidates = uniqueCdns(
+          cfg.multitap
+            ? [snesCoreCdn, 'https://cdn.emulatorjs.org/nightly/data/', cfg.ejsCdn]
+            : [cfg.ejsCdn, 'https://cdn.emulatorjs.org/latest/data/', snesCoreCdn],
+        );
         window.EJS_player = '#display';
         window.EJS_core = cfg.core;
         window.EJS_gameName = cfg.gameName;
@@ -137,14 +140,37 @@
           settings: true,
           fullscreen: true,
         };
-        window.EJS_netplayServer = cfg.netplayServer || defaultNetplayServer(cfg);
+        const netplayUrl = (cfg.netplayServer || defaultNetplayServer(cfg)).replace(/\/$/, '');
+        window.EJS_netplayServer = netplayUrl;
+        window.EJS_netplayUrl = netplayUrl;
         window.EJS_netplayICEServers = cfg.iceServers;
         window.EJS_multitap = Boolean(cfg.multitap);
-        window.EJS_defaultOptions = Object.assign({}, window.EJS_defaultOptions, {
-          'controller-port-device-p2': cfg.multitap ? String(SNES_MULTITAP_DEVICE) : '1',
-        });
+        if (cfg.multitap) {
+          const coreBase = `${snesCoreCdn}cores/`;
+          const paths = Object.assign({}, window.EJS_paths);
+          [
+            'snes9x-wasm.data',
+            'snes9x-legacy-wasm.data',
+            'snes9x-thread-wasm.data',
+            'snes9x-thread-legacy-wasm.data',
+          ].forEach((name) => {
+            paths[name] = coreBase + name;
+          });
+          window.EJS_paths = paths;
+        }
+        window.EJS_ready = () => {
+          if (cfg.multitap) armSnesMultitap(window.EJS_emulator);
+        };
         window.EJS_onGameStart = () => {
-          if (cfg.multitap) enableSnesMultitap(window.EJS_emulator);
+          const applyMultitap = () => {
+            try {
+              if (cfg.multitap) enableSnesMultitap(window.EJS_emulator);
+            } catch {
+              /* core sem Super Multitap no WASM — o Netplay tem de abrir na mesma */
+            }
+          };
+          applyMultitap();
+          window.setTimeout(applyMultitap, 300);
           parent.postMessage({ type: 'office-emulator-playing' }, window.location.origin);
           void bootNetplay(cfg);
         };
@@ -163,12 +189,16 @@
         if (!loaded) {
           started = false;
           start.hidden = false;
+          start.textContent = 'Tentar de novo';
           status.textContent =
             'Não deu para carregar o EmulatorJS (CDN). Confira a rede ou EJS_CDN=https://cdn.emulatorjs.org/latest/data/';
           return;
         }
         boot.classList.add('hidden');
         if (cfg.role === 'spectator') enableWatchShield();
+        void waitFor(() => window.EJS_emulator, 20000).then((emu) => {
+          if (cfg.multitap) armSnesMultitap(emu);
+        });
       }
 
       function uniqueCdns(urls) {
@@ -203,7 +233,11 @@
           showNetplayHint('EmulatorJS não subiu.');
           return;
         }
-        if (cfg.multitap) enableSnesMultitap(emu);
+        try {
+          if (cfg.multitap) enableSnesMultitap(emu);
+        } catch {
+          /* opcional */
+        }
         const np = await waitFor(() => netplayApi(emu), 8000);
         if (!np) {
           showNetplayHint('Netplay indisponível nesta build — o jogo local continua.');
@@ -216,8 +250,8 @@
           return;
         }
         const server = (cfg.netplayServer || defaultNetplayServer(cfg)).replace(/\/$/, '');
-        if (!np.url) np.url = server;
-        if (emu.config && !emu.config.netplayUrl) emu.config.netplayUrl = server;
+        np.url = server;
+        if (emu.config) emu.config.netplayUrl = server;
         if (typeof np.defineNetplayFunctions === 'function') {
           try {
             np.defineNetplayFunctions();
@@ -228,14 +262,11 @@
         np.name = cfg.playerName;
         if (cfg.role === 'host') {
           np.openRoom(cfg.netplayRoomName, cfg.playerCount, cfg.netplayPassword);
-          await waitFor(() => np.extra?.sessionid, 8000);
-          const roomId = np.extra?.sessionid;
+          const roomId = await waitFor(() => (emu.isNetplay && np.extra && np.extra.sessionid) || null, 15000);
           if (typeof roomId === 'string') {
             parent.postMessage({ type: 'office-emulator-room', roomId }, window.location.origin);
           } else {
-            showNetplayHint(
-              `Sala Netplay não abriu (servidor :${cfg.netplayPort || 3000} a correr?). O jogo local continua.`,
-            );
+            showNetplayHint(`Sala Netplay não abriu em ${server}. O jogo local continua.`);
           }
           reportSlot(np, cfg);
           return;
@@ -254,11 +285,21 @@
           parent.postMessage({ type: 'office-emulator-need-room' }, window.location.origin);
           return;
         }
-        if (np.extra?.sessionid === cfg.netplayRoomId) return;
+        if (emu.isNetplay && np.extra && np.extra.sessionid === cfg.netplayRoomId) {
+          reportSlot(np, cfg);
+          return;
+        }
+        if (joiningNetplay) return;
+        joiningNetplay = true;
         np.name = cfg.playerName;
         np.joinRoom(cfg.netplayRoomId, cfg.netplayRoomName, cfg.playerCount, cfg.netplayPassword);
-        await waitFor(() => emu.isNetplay || np.players, 8000);
-        reportSlot(np, cfg);
+        const joined = await waitFor(() => emu.isNetplay, 12000);
+        if (joined) {
+          reportSlot(np, cfg);
+          return;
+        }
+        joiningNetplay = false;
+        showNetplayHint('Ainda a entrar na sala Netplay…');
       }
 
       function netplayApi(emu) {
@@ -337,13 +378,200 @@
 
       /** libretro `RETRO_DEVICE_JOYPAD_MULTITAP` — Super Multitap on SNES port 2. */
       const SNES_MULTITAP_DEVICE = 257;
+      const MULTITAP_APPEND = '/tmp/office-multitap.cfg';
+      const RETROARCH_CFGS = [
+        '/retroarch/userdata/retroarch.cfg',
+        '/home/web_user/retroarch/userdata/retroarch.cfg',
+        '/home/web_user/.config/retroarch/retroarch.cfg',
+        '/home/web_user/.retroarch.cfg',
+        '/etc/retroarch.cfg',
+      ];
+      const RETROARCH_REMAPS = [
+        '/retroarch/userdata/config/remaps/Snes9x/Snes9x.rmp',
+        '/retroarch/userdata/config/remaps/snes9x/snes9x.rmp',
+        '/home/web_user/retroarch/userdata/config/remaps/Snes9x/Snes9x.rmp',
+        '/home/web_user/.config/retroarch/config/remaps/Snes9x/Snes9x.rmp',
+      ];
+
+      function multitapCfgBody() {
+        return [
+          'input_max_users = "8"',
+          'input_libretro_device_p1 = "1"',
+          `input_libretro_device_p2 = "${SNES_MULTITAP_DEVICE}"`,
+          'input_libretro_device_p3 = "1"',
+          'input_libretro_device_p4 = "1"',
+          'input_libretro_device_p5 = "1"',
+          '',
+        ].join('\n');
+      }
+
+      function mergeMultitapIntoCfg(text) {
+        let next = typeof text === 'string' ? text : '';
+        const settings = {
+          input_max_users: '"8"',
+          input_libretro_device_p1: '"1"',
+          input_libretro_device_p2: `"${SNES_MULTITAP_DEVICE}"`,
+          input_libretro_device_p3: '"1"',
+          input_libretro_device_p4: '"1"',
+          input_libretro_device_p5: '"1"',
+        };
+        Object.keys(settings).forEach((key) => {
+          const line = `${key} = ${settings[key]}`;
+          const re = new RegExp(`${key}\\s*=\\s*("[^"]*"|\\S+)`);
+          if (re.test(next)) next = next.replace(re, line);
+          else next = `${next.replace(/\s*$/, '')}\n${line}\n`;
+        });
+        return next;
+      }
+
+      function emulatorFs(emu) {
+        if (emu && emu.Module && emu.Module.FS) return emu.Module.FS;
+        if (emu && emu.gameManager && emu.gameManager.FS) return emu.gameManager.FS;
+        if (emu && emu.gameManager && emu.gameManager.Module && emu.gameManager.Module.FS) {
+          return emu.gameManager.Module.FS;
+        }
+        return null;
+      }
+
+      function fsWrite(fs, path, text) {
+        const parts = path.split('/');
+        let current = '';
+        for (let i = 0; i < parts.length - 1; i += 1) {
+          if (!parts[i]) continue;
+          current += `/${parts[i]}`;
+          try {
+            fs.mkdir(current);
+          } catch {
+            /* já existe */
+          }
+        }
+        fs.writeFile(path, text);
+      }
+
+      function writeSnesMultitapCfg(emu) {
+        const fs = emulatorFs(emu);
+        if (!fs || typeof fs.writeFile !== 'function') return false;
+        const body = multitapCfgBody();
+        try {
+          fsWrite(fs, MULTITAP_APPEND, body);
+        } catch {
+          return false;
+        }
+        RETROARCH_CFGS.forEach((path) => {
+          let prev = '';
+          try {
+            prev = String(fs.readFile(path, { encoding: 'utf8' }));
+          } catch {
+            prev = '';
+          }
+          try {
+            fsWrite(fs, path, mergeMultitapIntoCfg(prev));
+          } catch {
+            /* ignore */
+          }
+        });
+        RETROARCH_REMAPS.forEach((path) => {
+          try {
+            fsWrite(fs, path, body);
+          } catch {
+            /* ignore */
+          }
+        });
+        return true;
+      }
+
+      function hookFsWrites(emu) {
+        const fs = emulatorFs(emu);
+        if (!fs || typeof fs.writeFile !== 'function' || fs._officeMultitapFs) return false;
+        const orig = fs.writeFile.bind(fs);
+        fs._officeMultitapFs = true;
+        fs.writeFile = function (path, data, opts) {
+          const name = String(path || '');
+          let payload = data;
+          if (/retroarch\.cfg$/i.test(name)) {
+            let text = '';
+            if (typeof data === 'string') text = data;
+            else if (data instanceof Uint8Array) text = new TextDecoder().decode(data);
+            payload = mergeMultitapIntoCfg(text);
+          }
+          return orig(path, payload, opts);
+        };
+        return true;
+      }
+
+      function hookRetroArchCallMain(emu) {
+        const mod = (emu && emu.Module) || (emu && emu.gameManager && emu.gameManager.Module);
+        if (!mod || typeof mod.callMain !== 'function' || mod._officeMultitapMain) return false;
+        hookFsWrites(emu);
+        if (!writeSnesMultitapCfg(emu)) return false;
+        mod._officeMultitapMain = true;
+        const orig = mod.callMain.bind(mod);
+        mod.callMain = function (args) {
+          writeSnesMultitapCfg(emu);
+          const extra = [`--appendconfig=${MULTITAP_APPEND}`];
+          const list = Array.isArray(args) ? extra.concat(args) : extra;
+          return orig(list);
+        };
+        return true;
+      }
+
+      function watchEmulatorModule(emu) {
+        if (!emu || emu._officeMultitapWatch) return;
+        emu._officeMultitapWatch = true;
+        let current = emu.Module;
+        const apply = () => {
+          hookFsWrites(emu);
+          hookRetroArchCallMain(emu);
+        };
+        if (current) apply();
+        try {
+          Object.defineProperty(emu, 'Module', {
+            configurable: true,
+            enumerable: true,
+            get() {
+              return current;
+            },
+            set(mod) {
+              current = mod;
+              apply();
+            },
+          });
+        } catch {
+          /* Module já definido — o poll do armSnesMultitap chega */
+        }
+      }
+
+      function armSnesMultitap(emu) {
+        if (!emu || emu._officeMultitapArmed) return;
+        emu._officeMultitapArmed = true;
+        watchEmulatorModule(emu);
+        if (typeof emu.on === 'function') {
+          emu.on('saveDatabaseLoaded', () => hookRetroArchCallMain(emu));
+        }
+        const startedAt = Date.now();
+        const tick = () => {
+          hookFsWrites(emu);
+          if (hookRetroArchCallMain(emu)) return;
+          if (Date.now() - startedAt > 45000) return;
+          requestAnimationFrame(tick);
+        };
+        tick();
+      }
 
       function enableSnesMultitap(emu) {
+        writeSnesMultitapCfg(emu);
         const gm = emu && emu.gameManager;
-        if (!gm || typeof gm.setControllerPortDevice !== 'function') return;
+        const nativeSet = gm && gm.functions && gm.functions.setControllerPortDevice;
+        const wasmSet =
+          emu && emu.Module && typeof emu.Module._ejs_set_controller_port_device === 'function'
+            ? (port, device) => emu.Module._ejs_set_controller_port_device(port, device)
+            : null;
+        const setDevice = typeof nativeSet === 'function' ? nativeSet.bind(gm.functions) : wasmSet;
+        if (typeof setDevice !== 'function') return false;
         let deviceId = SNES_MULTITAP_DEVICE;
         try {
-          const info = typeof gm.getControllerPortInfo === 'function' ? gm.getControllerPortInfo() : '';
+          const nativeInfo = gm && gm.functions && gm.functions.getControllerPortInfo;
+          const info = typeof nativeInfo === 'function' ? nativeInfo() : '';
           if (typeof info === 'string') {
             for (const line of info.split('\n')) {
               const parts = line.split(':');
@@ -359,10 +587,17 @@
         } catch {
           /* WASM antigo sem a export */
         }
-        gm.setControllerPortDevice(1, deviceId);
+        try {
+          setDevice(1, deviceId);
+          return true;
+        } catch {
+          return false;
+        }
       }
 
       function defaultNetplayServer(cfg) {
+        const pagePort = Number(location.port);
+        if (pagePort === 5173 || pagePort === 4173) return location.origin;
         const port = Number(cfg && cfg.netplayPort) || 3000;
         return `${location.protocol}//${location.hostname}:${port}`;
       }

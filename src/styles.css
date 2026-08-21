@@ -575,6 +575,46 @@ button.media-expand:focus-visible {
   color: #fff;
 }
 
+.joystick {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 9;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: rgba(18, 22, 32, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.joystick.is-blocked {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.joystick.is-active {
+  background: rgba(18, 22, 32, 0.58);
+  border-color: rgba(124, 156, 255, 0.45);
+}
+
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  border-radius: 50%;
+  background: rgba(232, 236, 244, 0.88);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  will-change: transform;
+}
+
 #chat-form {
   position: absolute;
   right: 12px;
@@ -592,6 +632,16 @@ button.media-expand:focus-visible {
   border-radius: 10px;
   background: rgba(21, 25, 35, 0.88);
   backdrop-filter: blur(8px);
+}
+
+@media (any-pointer: coarse) {
+  #chat-form {
+    left: 132px;
+  }
+
+  #chat-input {
+    margin: 0;
+  }
 }
 
 #avatar-proof {

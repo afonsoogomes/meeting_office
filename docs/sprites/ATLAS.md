@@ -67,7 +67,9 @@ Os pisos começam em `y = 336`. Tile `(col, row)` relativo a esse bloco: `x = co
 
 ## Móveis
 
-O catálogo jogável vem de `scripts/gen-furniture-catalog.py` (índices oficiais do `Furniture.png`, grade 32 colunas × 16px). Fonte da verdade gerada: `src/world/furnitureData.ts`. Recortes extra (escrivaninha, vasos e fliperamas do Craftables, cozinha do Farmhouse) continuam em `src/world/atlas.ts`.
+O catálogo jogável vem de `scripts/gen-furniture-catalog.py` (índices oficiais do `Furniture.png`, grade 32 colunas × 16px). Fonte da verdade gerada: `src/world/furnitureData.ts`. Recortes extra (escrivaninha, vasos e fliperamas do Craftables, cozinha do Farmhouse) continuam em `src/world/atlas.ts` e `EXTRAS` em `src/world/furniture.ts`.
+
+Padrão de `use`, `slots` e `slotAnchors` (lugares ≠ tiles): [../houses/AUTHORING.md](../houses/AUTHORING.md#41-catálogo--o-que-preencher).
 
 Peças já usadas no escritório modelo:
 

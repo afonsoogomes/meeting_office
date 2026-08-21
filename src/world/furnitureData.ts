@@ -31,8 +31,14 @@ export type CatalogEntry = {
   collide: boolean;
   layer: 'floor' | 'object' | 'wall';
   use?: 'sit' | 'sleep' | 'watch' | 'play';
-  /** People who can sit/sleep. Default: chairs 1, benches/sofas by width, single bed 1, double 2. */
+  /** People who can sit/sleep. Default: chair 1, bench 2, sofa 3-wide 2, sofa 4-wide 3, single bed 1, double 2. */
   slots?: number;
+  /**
+   * Sit/sleep points in the **down-facing** footprint (0–1).
+   * `u` left→right, `v` north→south (1 = frente do assento).
+   * If omitted, slots are spaced evenly on the front edge.
+   */
+  slotAnchors?: Array<{ u: number; v: number }>;
   side?: { w: number; h: number };
   sprites: { down: string; right?: string; up?: string };
 };

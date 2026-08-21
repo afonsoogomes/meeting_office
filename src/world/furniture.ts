@@ -127,9 +127,22 @@ function isWallHangingEntry(item: { id: string; group?: string; layer?: string }
 export const CATALOG: Record<string, FurnitureKind> = Object.fromEntries(
   [...EXTRAS, ...GENERATED_CATALOG].map((item) => {
     const kind = isWallHangingEntry(item) ? { ...item, layer: 'wall' as const, collide: false } : item;
-    return [kind.id, kind];
+    return [kind.id, withSitLayout(kind)];
   }),
 );
+
+function withSitLayout(kind: FurnitureKind): FurnitureKind {
+  if (kind.use !== 'sit' || kind.slotAnchors?.length || kind.slots != null) return kind;
+  if (kind.side && kind.w >= 3) {
+    const slots = kind.w >= 4 ? 3 : 2;
+    const anchors = Array.from({ length: slots }, (_, slot) => ({
+      u: (slot + 0.5) / slots,
+      v: 1,
+    }));
+    return { ...kind, slots, slotAnchors: anchors };
+  }
+  return kind;
+}
 
 const SLICE_BY_KEY: Record<string, FurnitureSlice> = Object.fromEntries(
   FURNITURE_SLICES.map((slice) => [slice.key, slice]),
@@ -211,21 +224,65 @@ export function furniturePlaceKey(place: FurniturePlace): string {
   return place.id ?? `${place.item}:${place.col},${place.row}`;
 }
 
-/** How many people can sit or sleep on this placement. */
+/** How many people can sit or sleep on this placement. Count is per item, not per tile. */
 export function occupantSlots(place: FurniturePlace): number {
   const kind = furnitureKind(place.item);
-  if (kind.use === 'sleep') {
-    if (kind.slots != null) return Math.max(1, kind.slots);
-    return kind.w >= 3 ? 2 : 1;
-  }
+  if (kind.slotAnchors?.length) return kind.slotAnchors.length;
+  if (kind.slots != null) return Math.max(1, kind.slots);
+  if (kind.use === 'sleep') return kind.w >= 3 ? 2 : 1;
   if (kind.use !== 'sit') return 0;
-  if (kind.slots != null) {
-    const size = placedSize(place);
-    if (kind.w <= 1) return Math.max(1, kind.slots);
-    return Math.max(1, Math.round((kind.slots * size.w) / kind.w));
-  }
   if (!kind.side && kind.w >= 2) return 1;
-  return Math.max(1, placedSize(place).w);
+  if (kind.w >= 4) return 3;
+  if (kind.w >= 3) return 2;
+  return Math.max(1, kind.w);
+}
+
+export type SlotAnchor = { u: number; v: number };
+
+/** Sit point in the placed footprint (0–1). Transforms down-facing catalog anchors with `facing`. */
+export function slotAnchor(place: FurniturePlace, slot: number, slots = occupantSlots(place)): SlotAnchor {
+  const kind = furnitureKind(place.item);
+  const facing = place.facing ?? 'down';
+  const custom = kind.slotAnchors;
+  if (custom && custom.length === slots) {
+    const local = custom[Math.max(0, Math.min(slots - 1, slot))];
+    return faceAnchor(local, facing);
+  }
+  const t = (slot + 0.5) / Math.max(1, slots);
+  // One-person seats (chair, stool, armchair): the pan is inside the tile.
+  // Mapping "front" to v=0 when facing up puts feet on the desk to the north;
+  // the doll draws upward from the feet, so they look seated on the table.
+  if (kind.use === 'sit' && slots === 1) return { u: 0.5, v: 1 };
+  if (facing === 'down') return { u: t, v: 1 };
+  if (facing === 'up') return { u: 1 - t, v: 0 };
+  if (facing === 'right') return { u: 1, v: t };
+  return { u: 0, v: 1 - t };
+}
+
+function faceAnchor(anchor: SlotAnchor, facing: FurnitureFacing): SlotAnchor {
+  if (facing === 'down') return anchor;
+  if (facing === 'up') return { u: 1 - anchor.u, v: 1 - anchor.v };
+  if (facing === 'right') return { u: 1 - anchor.v, v: anchor.u };
+  return { u: anchor.v, v: 1 - anchor.u };
+}
+
+export function slotWorld(place: FurniturePlace, slot: number, slots = occupantSlots(place)): { x: number; y: number } {
+  const size = placedSize(place);
+  const anchor = slotAnchor(place, slot, slots);
+  return {
+    x: (place.col + anchor.u * size.w) * TILE_SIZE,
+    y: (place.row + anchor.v * size.h) * TILE_SIZE,
+  };
+}
+
+export function placeWorldRect(place: FurniturePlace): { x: number; y: number; w: number; h: number } {
+  const size = placedSize(place);
+  return {
+    x: place.col * TILE_SIZE,
+    y: place.row * TILE_SIZE,
+    w: size.w * TILE_SIZE,
+    h: size.h * TILE_SIZE,
+  };
 }
 
 export function footprintCells(place: FurniturePlace): Array<{ col: number; row: number }> {
