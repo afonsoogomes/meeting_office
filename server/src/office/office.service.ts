@@ -16,7 +16,7 @@ import {
   type OfficeSummary,
 } from '../../../shared/office';
 import { DEFAULT_OFFICE_FURNITURE, DEFAULT_OFFICE_NAME, DEFAULT_OFFICE_SPEC } from '../../../shared/office-default';
-import { DEFAULT_OFFICE_SLUG, MAX_FURNITURE, type FurniturePlacement } from '../../../shared/protocol';
+import { DEFAULT_OFFICE_SLUG, MAX_FURNITURE, MAX_NPCS, MAX_CHANNELS, CHANNEL_HISTORY, CHANNEL_STORE_MAX, type ChannelMessage, type ChannelSummary, type FurniturePlacement, type NpcPlacement } from '../../../shared/protocol';
 import { isCatalogItem } from './catalog';
 import { OfficeRepository, type OfficeRow } from './office.repository';
 
@@ -41,6 +41,7 @@ export class OfficeService implements OnModuleInit {
       name: office.name,
       spec: office.spec,
       furniture: this.offices.furnitureOf(office.id).filter((place) => isCatalogItem(place.item)),
+      npcs: this.offices.npcsOf(office.id),
     };
   }
 
@@ -56,7 +57,7 @@ export class OfficeService implements OnModuleInit {
     const spec = parseOfficeSpec(specFromHouse(DEFAULT_OFFICE_SPEC));
     if (!spec) throw new Error('invalid default office seed');
     const office = this.offices.createOffice(slug, name, spec, 'blank');
-    return { slug: office.slug, name: office.name, spec: office.spec, furniture: [] };
+    return { slug: office.slug, name: office.name, spec: office.spec, furniture: [], npcs: [] };
   }
 
   rename(currentSlug: string, input: { name?: unknown; slug?: unknown }): OfficeSnapshot {
@@ -121,6 +122,86 @@ export class OfficeService implements OnModuleInit {
     if (!office) return null;
     const seed = office.template === 'default' ? DEFAULT_OFFICE_FURNITURE : [];
     return this.offices.replaceAllFurniture(office.id, seed);
+  }
+
+  listNpcs(slug: string): NpcPlacement[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    return this.offices.npcsOf(office.id);
+  }
+
+  addNpc(slug: string, draft: Omit<NpcPlacement, 'id'>): NpcPlacement[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!inBounds(office.spec, draft.col, draft.row)) return null;
+    if (this.offices.npcCount(office.id) >= MAX_NPCS) return null;
+    this.offices.addNpc(office.id, draft);
+    return this.offices.npcsOf(office.id);
+  }
+
+  updateNpc(slug: string, npc: NpcPlacement): NpcPlacement[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!this.offices.getNpcPlace(office.id, npc.id)) return null;
+    if (!inBounds(office.spec, npc.col, npc.row)) return null;
+    if (!this.offices.replaceNpc(office.id, npc)) return null;
+    return this.offices.npcsOf(office.id);
+  }
+
+  removeNpc(slug: string, id: string): NpcPlacement[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!this.offices.removeNpc(office.id, id)) return null;
+    return this.offices.npcsOf(office.id);
+  }
+
+  listChannels(slug: string): ChannelSummary[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    return this.offices.channelsOf(office.id);
+  }
+
+  addChannel(slug: string, name: string): ChannelSummary[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (this.offices.channelCount(office.id) >= MAX_CHANNELS) return null;
+    this.offices.addChannel(office.id, name);
+    return this.offices.channelsOf(office.id);
+  }
+
+  renameChannel(slug: string, id: string, name: string): ChannelSummary[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!this.offices.renameChannel(office.id, id, name)) return null;
+    return this.offices.channelsOf(office.id);
+  }
+
+  removeChannel(slug: string, id: string): ChannelSummary[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!this.offices.removeChannel(office.id, id)) return null;
+    return this.offices.channelsOf(office.id);
+  }
+
+  listChannelMessages(slug: string, channelId: string): ChannelMessage[] | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!this.offices.getChannelPlace(office.id, channelId)) return null;
+    return this.offices.messagesOf(channelId, CHANNEL_HISTORY);
+  }
+
+  addChannelMessage(
+    slug: string,
+    channelId: string,
+    guestId: string,
+    name: string,
+    text: string,
+  ): { channels: ChannelSummary[]; message: ChannelMessage } | null {
+    const office = this.requireOffice(slug);
+    if (!office) return null;
+    if (!this.offices.getChannelPlace(office.id, channelId)) return null;
+    const message = this.offices.addMessage(channelId, guestId, name, text, CHANNEL_STORE_MAX);
+    return { channels: this.offices.channelsOf(office.id), message };
   }
 
   exists(slug: string): boolean {

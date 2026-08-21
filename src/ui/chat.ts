@@ -6,8 +6,9 @@ export class RoomChat {
   private readonly log: HTMLElement;
   private readonly input: HTMLInputElement;
   private lastAt = 0;
+  private readonly shouldFocus: () => boolean;
 
-  constructor(onSend: (text: string) => void) {
+  constructor(onSend: (text: string) => void, shouldFocus: () => boolean = () => true) {
     const log = document.querySelector('#chat-log');
     const form = document.querySelector('#chat-form');
     const input = document.querySelector('#chat-input');
@@ -16,6 +17,7 @@ export class RoomChat {
     }
     this.log = log;
     this.input = input;
+    this.shouldFocus = shouldFocus;
     this.input.maxLength = CHAT_MAX;
 
     form.addEventListener('submit', (event) => {
@@ -41,6 +43,7 @@ export class RoomChat {
       if (event.target === this.input) return;
       const active = document.activeElement;
       if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+      if (!this.shouldFocus()) return;
       event.preventDefault();
       this.input.focus();
     });

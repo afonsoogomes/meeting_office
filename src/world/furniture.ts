@@ -259,11 +259,12 @@ export function slotAnchor(place: FurniturePlace, slot: number, slots = occupant
   return { u: 0, v: 1 - t };
 }
 
+/** Rotate a down-facing (u, v) sit point with the piece. Front (v = 1) stays the cushion edge. */
 function faceAnchor(anchor: SlotAnchor, facing: FurnitureFacing): SlotAnchor {
   if (facing === 'down') return anchor;
   if (facing === 'up') return { u: 1 - anchor.u, v: 1 - anchor.v };
-  if (facing === 'right') return { u: 1 - anchor.v, v: anchor.u };
-  return { u: anchor.v, v: 1 - anchor.u };
+  if (facing === 'right') return { u: anchor.v, v: anchor.u };
+  return { u: 1 - anchor.v, v: 1 - anchor.u };
 }
 
 export function slotWorld(place: FurniturePlace, slot: number, slots = occupantSlots(place)): { x: number; y: number } {

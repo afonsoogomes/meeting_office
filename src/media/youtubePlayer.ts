@@ -10,6 +10,7 @@ type YtPlayer = {
   unMute: () => void;
   setVolume: (value: number) => void;
   setSize?: (width: number, height: number) => void;
+  playVideo?: () => void;
   loadVideoById: (videoId: string) => void;
   loadPlaylist?: (args: { list: string; listType?: string; index?: number }) => void;
   destroy: () => void;
@@ -25,7 +26,10 @@ type YtNamespace = {
       videoId?: string;
       host?: string;
       playerVars?: Record<string, string | number>;
-      events?: { onReady?: () => void };
+      events?: {
+        onReady?: () => void;
+        onStateChange?: (event: { data: number }) => void;
+      };
     },
   ) => YtPlayer;
 };
@@ -36,6 +40,11 @@ declare global {
     onYouTubeIframeAPIReady?: () => void;
   }
 }
+
+const YT_ENDED = 0;
+const YT_PLAYING = 1;
+const YT_PAUSED = 2;
+const YT_BUFFERING = 3;
 
 let api: Promise<YtNamespace> | null = null;
 
@@ -70,9 +79,18 @@ function loadYouTubeApi(): Promise<YtNamespace> {
   return api;
 }
 
+function unlockIframe(player: YtPlayer | null): void {
+  const iframe = player?.getIframe?.();
+  if (!iframe) return;
+  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+  iframe.setAttribute('playsinline', 'true');
+  iframe.setAttribute('allowfullscreen', 'true');
+}
+
 export type YouTubeHandle = {
   applyAudio: (audio: TvAudioState) => void;
   setSize: (width: number, height: number) => void;
+  resume: () => void;
   destroy: () => void;
 };
 
@@ -80,6 +98,7 @@ export async function mountYouTubePlayer(
   host: HTMLElement,
   ref: string,
   audio: TvAudioState,
+  onPlayback?: (playing: boolean) => void,
 ): Promise<YouTubeHandle> {
   const media = decodeYouTubeRef(ref);
   if (!media || (!media.videoId && !media.playlistId)) {
@@ -90,12 +109,30 @@ export async function mountYouTubePlayer(
   let player: YtPlayer | null = null;
   let pending = { ...audio };
   let ready = false;
+  let playing = false;
+  let stall: number | null = null;
 
-  const apply = (): void => {
+  const report = (): void => {
+    onPlayback?.(playing);
+  };
+
+  const apply = (forceUnmute = false): void => {
     if (!player || !ready) return;
     player.setVolume(Math.round(pending.volume));
-    if (pending.muted || pending.volume <= 0) player.mute();
-    else player.unMute();
+    const silent = pending.muted || pending.volume <= 0;
+    if (silent) player.mute();
+    else if (playing || forceUnmute) player.unMute();
+    else player.mute();
+  };
+
+  const resume = (fromGesture = false): void => {
+    if (!player || !ready) return;
+    try {
+      player.playVideo?.();
+    } catch {
+      /* Safari may reject until the next tap */
+    }
+    apply(fromGesture);
   };
 
   const playerVars: Record<string, string | number> = {
@@ -111,6 +148,7 @@ export async function mountYouTubePlayer(
     cc_load_policy: 0,
     loop: 1,
     origin: location.origin,
+    enablejsapi: 1,
   };
 
   if (media.playlistId) {
@@ -130,11 +168,7 @@ export async function mountYouTubePlayer(
     events: {
       onReady: () => {
         ready = true;
-        try {
-          player?.getIframe?.().setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-        } catch {
-          /* ignore */
-        }
+        unlockIframe(player);
         if (media.playlistId && media.index !== null) {
           try {
             player?.loadPlaylist?.({
@@ -147,6 +181,22 @@ export async function mountYouTubePlayer(
           }
         }
         apply();
+        resume(false);
+        if (stall !== null) window.clearTimeout(stall);
+        stall = window.setTimeout(() => {
+          stall = null;
+          if (!playing) report();
+        }, 900);
+      },
+      onStateChange: (event) => {
+        const state = event.data;
+        playing = state === YT_PLAYING || state === YT_BUFFERING;
+        if (playing) {
+          apply();
+          report();
+          return;
+        }
+        if (state === YT_PAUSED || state === YT_ENDED) report();
       },
     },
   });
@@ -163,8 +213,14 @@ export async function mountYouTubePlayer(
         /* player not ready */
       }
     },
+    resume() {
+      resume(true);
+    },
     destroy() {
       ready = false;
+      playing = false;
+      if (stall !== null) window.clearTimeout(stall);
+      stall = null;
       try {
         player?.destroy();
       } catch {

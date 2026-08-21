@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import type { Server } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import { parseClientMessage, type ClientMessage, type FurniturePlacement, WS_HEARTBEAT_MS } from '../../../shared/protocol';
+import { parseClientMessage, type ClientMessage, type FurniturePlacement, type NpcPlacement, WS_HEARTBEAT_MS } from '../../../shared/protocol';
 import { GamesService } from '../games/games.service';
 import { OfficeService } from '../office/office.service';
 import { PresenceService } from './presence.service';
@@ -13,6 +13,8 @@ export class PresenceSocket {
   private readonly lastChatAt = new Map<WebSocket, number>();
   private readonly lastTvAt = new Map<WebSocket, number>();
   private readonly lastFurnitureAt = new Map<WebSocket, number>();
+  private readonly lastNpcAt = new Map<WebSocket, number>();
+  private readonly lastChannelAt = new Map<WebSocket, number>();
   private readonly pings = new Map<WebSocket, ReturnType<typeof setInterval>>();
 
   constructor(
@@ -52,6 +54,8 @@ export class PresenceSocket {
       this.lastChatAt.delete(socket);
       this.lastTvAt.delete(socket);
       this.lastFurnitureAt.delete(socket);
+      this.lastNpcAt.delete(socket);
+      this.lastChannelAt.delete(socket);
       const guest = this.presence.leave(socket);
       if (guest) {
         this.games?.presenceLost(guest.guestId);
@@ -90,6 +94,8 @@ export class PresenceSocket {
         peers: this.presence.peersExcept(message.office, peer.guestId),
         tvs: this.presence.listTvs(message.office),
         furniture: this.offices.listFurniture(message.office) ?? [],
+        npcs: this.offices.listNpcs(message.office) ?? [],
+        channels: this.offices.listChannels(message.office) ?? [],
         games: this.games?.viewOfOffice(message.office) ?? [],
       });
       this.presence.broadcast(peer.guestId, { type: 'join', peer });
@@ -143,6 +149,22 @@ export class PresenceSocket {
       return;
     }
 
+    if (message.type === 'npc_add' || message.type === 'npc_update' || message.type === 'npc_remove') {
+      this.onNpc(socket, message);
+      return;
+    }
+
+    if (
+      message.type === 'channel_add' ||
+      message.type === 'channel_rename' ||
+      message.type === 'channel_remove' ||
+      message.type === 'channel_history' ||
+      message.type === 'channel_chat'
+    ) {
+      this.onChannel(socket, message);
+      return;
+    }
+
     if (message.type !== 'meta') return;
     const guestId = this.presence.updateMeta(socket, message.name, message.appearance);
     if (guestId) {
@@ -191,5 +213,104 @@ export class PresenceSocket {
 
     const next = places ?? this.offices.listFurniture(officeSlug) ?? [];
     this.presence.broadcastOffice(officeSlug, { type: 'furniture', places: next });
+  }
+
+  private onNpc(
+    socket: WebSocket,
+    message: Extract<ClientMessage, { type: 'npc_add' } | { type: 'npc_update' } | { type: 'npc_remove' }>,
+  ): void {
+    const officeSlug = this.presence.officeOf(socket);
+    if (!officeSlug) return;
+    const now = Date.now();
+    const last = this.lastNpcAt.get(socket) ?? 0;
+    if (now - last < 80) return;
+    this.lastNpcAt.set(socket, now);
+
+    let npcs: NpcPlacement[] | null = null;
+    if (message.type === 'npc_add') {
+      npcs = this.offices.addNpc(officeSlug, {
+        name: message.name,
+        line: message.line,
+        appearance: message.appearance,
+        col: message.col,
+        row: message.row,
+        facing: message.facing,
+      });
+    } else if (message.type === 'npc_update') {
+      npcs = this.offices.updateNpc(officeSlug, {
+        id: message.id,
+        name: message.name,
+        line: message.line,
+        appearance: message.appearance,
+        col: message.col,
+        row: message.row,
+        facing: message.facing,
+      });
+    } else {
+      npcs = this.offices.removeNpc(officeSlug, message.id);
+    }
+
+    const next = npcs ?? this.offices.listNpcs(officeSlug) ?? [];
+    this.presence.broadcastOffice(officeSlug, { type: 'npcs', npcs: next });
+  }
+
+  private onChannel(
+    socket: WebSocket,
+    message: Extract<
+      ClientMessage,
+      | { type: 'channel_add' }
+      | { type: 'channel_rename' }
+      | { type: 'channel_remove' }
+      | { type: 'channel_history' }
+      | { type: 'channel_chat' }
+    >,
+  ): void {
+    const officeSlug = this.presence.officeOf(socket);
+    if (!officeSlug) return;
+
+    if (message.type === 'channel_history') {
+      const messages = this.offices.listChannelMessages(officeSlug, message.channelId);
+      if (!messages) return;
+      this.presence.send(socket, { type: 'channel_history', channelId: message.channelId, messages });
+      return;
+    }
+
+    const now = Date.now();
+    const last = this.lastChannelAt.get(socket) ?? 0;
+    if (now - last < 80) return;
+    this.lastChannelAt.set(socket, now);
+
+    if (message.type === 'channel_chat') {
+      const speaker = this.presence.speaker(socket);
+      if (!speaker) return;
+      const lastChat = this.lastChatAt.get(socket) ?? 0;
+      if (now - lastChat < 400) return;
+      this.lastChatAt.set(socket, now);
+      const posted = this.offices.addChannelMessage(
+        officeSlug,
+        message.channelId,
+        speaker.guestId,
+        speaker.name,
+        message.text,
+      );
+      if (!posted) return;
+      this.presence.broadcastOffice(officeSlug, {
+        type: 'channel_message',
+        channelId: message.channelId,
+        message: posted.message,
+      });
+      this.presence.broadcastOffice(officeSlug, { type: 'channels', channels: posted.channels });
+      return;
+    }
+
+    let channels = null;
+    if (message.type === 'channel_add') channels = this.offices.addChannel(officeSlug, message.name);
+    else if (message.type === 'channel_rename') {
+      channels = this.offices.renameChannel(officeSlug, message.id, message.name);
+    } else {
+      channels = this.offices.removeChannel(officeSlug, message.id);
+    }
+    const next = channels ?? this.offices.listChannels(officeSlug) ?? [];
+    this.presence.broadcastOffice(officeSlug, { type: 'channels', channels: next });
   }
 }

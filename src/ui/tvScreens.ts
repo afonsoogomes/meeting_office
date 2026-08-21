@@ -9,6 +9,12 @@ const PLAYER_H = 180;
 /** Crop YouTube title/logo by scaling the iframe past the glass. */
 const OVERSCAN = 1.18;
 
+const PLAY_ICON = `
+  <span class="tv-resume-hit" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg>
+  </span>
+`;
+
 type TvScreensHandlers = {
   onExpand?: () => void;
 };
@@ -20,12 +26,14 @@ type Playing = {
   clip: HTMLDivElement;
   frame: HTMLElement;
   expand: HTMLButtonElement;
+  resume: HTMLButtonElement;
   label: HTMLSpanElement;
   handle: YouTubeHandle | null;
   hole: Phaser.GameObjects.Graphics | null;
   mount: number;
   playerWidth: number;
   playerHeight: number;
+  playing: boolean;
 };
 
 export class TvScreens {
@@ -72,26 +80,32 @@ export class TvScreens {
   }
 
   setAudio(audio: TvAudioState): void {
+    const unmute = !audio.muted && audio.volume > 0 && (this.audio.muted || this.audio.volume <= 0);
     this.audio = { ...audio };
-    for (const current of this.playing.values()) current.handle?.applyAudio(this.audio);
+    for (const current of this.playing.values()) {
+      current.handle?.applyAudio(this.audio);
+      if (unmute) current.handle?.resume();
+    }
   }
 
   stopAll(): void {
     for (const id of [...this.playing.keys()]) this.stop(id);
   }
 
-  play(spot: TvSpot, videoId: string): void {
+  play(spot: TvSpot, videoId: string, fromGesture = false): void {
     const id = tvId(spot.place);
     const existing = this.playing.get(id);
     if (existing?.videoId === videoId) {
       existing.place = spot.place;
       existing.handle?.applyAudio(this.audio);
+      if (fromGesture) existing.handle?.resume();
       return;
     }
     existing?.handle?.destroy();
     existing?.hole?.destroy();
     existing?.clip.remove();
     existing?.expand.remove();
+    existing?.resume.remove();
 
     const clip = document.createElement('div');
     clip.className = 'tv-screen';
@@ -108,6 +122,19 @@ export class TvScreens {
       event.preventDefault();
       event.stopPropagation();
       this.toggleExpanded(id);
+      this.playing.get(id)?.handle?.resume();
+    });
+
+    const resume = document.createElement('button');
+    resume.type = 'button';
+    resume.className = 'tv-resume hidden';
+    resume.setAttribute('aria-label', 'Tocar');
+    resume.title = 'Tocar';
+    resume.innerHTML = PLAY_ICON;
+    resume.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.playing.get(id)?.handle?.resume();
     });
 
     const label = document.createElement('span');
@@ -117,7 +144,7 @@ export class TvScreens {
 
     clip.append(frame, label);
     this.root.append(clip);
-    this.chrome.append(expand);
+    this.chrome.append(expand, resume);
 
     const token = (existing?.mount ?? 0) + 1;
     const current: Playing = {
@@ -127,17 +154,25 @@ export class TvScreens {
       clip,
       frame,
       expand,
+      resume,
       label,
       handle: null,
       hole: null,
       mount: token,
       playerWidth: PLAYER_W,
       playerHeight: PLAYER_H,
+      playing: false,
     };
     this.playing.set(id, current);
     this.syncExpandButton(current);
+    this.syncResume(current);
 
-    void mountYouTubePlayer(mount, videoId, this.audio)
+    void mountYouTubePlayer(mount, videoId, this.audio, (playing) => {
+      const live = this.playing.get(id);
+      if (!live || live.videoId !== videoId || live.mount !== token) return;
+      live.playing = playing;
+      this.syncResume(live);
+    })
       .then((handle) => {
         const live = this.playing.get(id);
         if (!live || live.videoId !== videoId || live.mount !== token) {
@@ -159,6 +194,7 @@ export class TvScreens {
     current.hole?.destroy();
     current.clip.remove();
     current.expand.remove();
+    current.resume.remove();
     this.playing.delete(id);
     if (this.expanded === id) this.setExpanded(null);
   }
@@ -178,46 +214,57 @@ export class TvScreens {
     for (const current of this.playing.values()) {
       current.clip.style.display = 'none';
       current.expand.style.display = 'none';
+      current.resume.style.display = 'none';
       current.hole?.clear();
     }
   }
 
   tick(scene: Phaser.Scene): void {
     const punch = canPunchCanvas(scene);
-    this.root.classList.toggle('behind-canvas', punch);
+    this.root.classList.toggle('behind-canvas', punch && this.expanded === null);
+    this.root.classList.toggle('has-expanded', this.expanded !== null);
     this.chrome.classList.toggle('has-expanded', this.expanded !== null);
 
     for (const current of this.playing.values()) {
       const expanded = this.expanded === current.tvId;
       current.clip.classList.toggle('tv-screen-expanded', expanded);
       this.syncExpandButton(current);
+      this.syncResume(current);
       current.label.style.display = expanded ? 'block' : 'none';
 
       if (expanded) {
-        if (current.clip.parentElement !== this.chrome) this.chrome.append(current.clip);
         if (current.expand.parentElement !== current.clip) current.clip.append(current.expand);
+        if (current.resume.parentElement !== current.clip) current.clip.append(current.resume);
         current.expand.style.left = '';
         current.expand.style.top = '';
         current.expand.style.right = '';
+        current.resume.style.left = '';
+        current.resume.style.top = '';
+        current.resume.style.width = '';
+        current.resume.style.height = '';
         current.clip.style.display = 'block';
         current.expand.style.display = '';
         current.clip.style.left = '';
         current.clip.style.top = '';
         current.clip.style.width = '';
         current.clip.style.height = '';
-        current.frame.style.transform = '';
+        const width = current.clip.clientWidth;
+        const height = current.clip.clientHeight;
+        if (width >= 8 && height >= 6) {
+          current.frame.style.transform = `scale(${width / PLAYER_W}, ${height / PLAYER_H})`;
+        }
         current.hole?.clear();
-        this.fitPlayer(current, current.clip.clientWidth, current.clip.clientHeight);
         continue;
       }
 
-      if (current.clip.parentElement !== this.root) this.root.append(current.clip);
       if (current.expand.parentElement !== this.chrome) this.chrome.append(current.expand);
+      if (current.resume.parentElement !== this.chrome) this.chrome.append(current.resume);
 
       const screen = tvScreenWorld(current.place);
       if (!screen) {
         current.clip.style.display = 'none';
         current.expand.style.display = 'none';
+        current.resume.classList.add('hidden');
         current.hole?.clear();
         continue;
       }
@@ -234,6 +281,10 @@ export class TvScreens {
       current.expand.style.right = 'auto';
       current.expand.style.left = `${topLeft.x + width - 34}px`;
       current.expand.style.top = `${topLeft.y + 6}px`;
+      current.resume.style.left = `${topLeft.x}px`;
+      current.resume.style.top = `${topLeft.y}px`;
+      current.resume.style.width = `${width}px`;
+      current.resume.style.height = `${height}px`;
       const scaleX = (width / PLAYER_W) * OVERSCAN;
       const scaleY = (height / PLAYER_H) * OVERSCAN;
       const ox = (width - PLAYER_W * scaleX) / 2;
@@ -279,6 +330,12 @@ export class TvScreens {
     current.expand.setAttribute('aria-pressed', expanded ? 'true' : 'false');
     current.expand.setAttribute('aria-label', expanded ? 'Recolher' : 'Expandir');
     current.expand.title = expanded ? 'Recolher' : 'Expandir';
+  }
+
+  private syncResume(current: Playing): void {
+    const show = !current.playing;
+    current.resume.classList.toggle('hidden', !show);
+    current.resume.style.display = show ? '' : 'none';
   }
 
   private fitPlayer(current: Playing, width: number, height: number): void {

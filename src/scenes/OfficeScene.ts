@@ -19,11 +19,14 @@ import {
   GamesApiError,
 } from '../net/games';
 import { isActiveSession, isWatchReady, type GameCatalogItem, type GameSessionView } from '../../shared/game-session';
-import type { FurniturePlacement, Peer, Pose, TvScreen } from '../../shared/protocol';
+import type { ChannelMessage, ChannelSummary, FurniturePlacement, NpcPlacement, Peer, Pose, TvScreen } from '../../shared/protocol';
+import { CHANNEL_HISTORY, sanitizeName } from '../../shared/protocol';
 import { VoiceClient } from '../net/voice';
 import { BuilderPanel } from '../ui/builder';
 import { PeoplePanel } from '../ui/peoplePanel';
 import { OfficesPanel } from '../ui/officesPanel';
+import { NpcPanel, type NpcDraft } from '../ui/npcPanel';
+import { ChannelsPanel } from '../ui/channelsPanel';
 import { RoomChat } from '../ui/chat';
 import { Hud } from '../ui/hud';
 import { WalkJoystick } from '../ui/joystick';
@@ -37,7 +40,8 @@ import { VoiceHud } from '../ui/voiceHud';
 import { MediaStage } from '../ui/mediaStage';
 import { ShareInvites } from '../ui/shareInvite';
 import { BuildGhost } from '../world/buildMode';
-import { COLLEAGUES, colleagueWorld } from '../world/colleagues';
+import { npcSpeechMs, npcWorld } from '../world/colleagues';
+import { emptyChannels, loadLocalChannels, saveLocalChannels, type LocalChannels } from '../world/channels';
 import {
   canPlace,
   CATALOG,
@@ -75,9 +79,11 @@ import {
   defaultFurniture,
   getBuiltHouse,
   initialFurniture,
+  initialNpcs,
   isWalkable,
   roomAt,
   saveOfficeFurniture,
+  saveOfficeNpcs,
   tileToWorld,
   worldToTile,
   type TileId,
@@ -98,6 +104,8 @@ type KeyMap = {
   G: Phaser.Input.Keyboard.Key;
   C: Phaser.Input.Keyboard.Key;
   F: Phaser.Input.Keyboard.Key;
+  N: Phaser.Input.Keyboard.Key;
+  T: Phaser.Input.Keyboard.Key;
   R: Phaser.Input.Keyboard.Key;
   X: Phaser.Input.Keyboard.Key;
   V: Phaser.Input.Keyboard.Key;
@@ -152,7 +160,8 @@ function allowTypingInFields(keyboard: Phaser.Input.Keyboard.KeyboardPlugin): ()
 
 export class OfficeScene extends Phaser.Scene {
   private player!: Character;
-  private colleagues: Character[] = [];
+  private npcPlaces: NpcPlacement[] = [];
+  private colleagues = new Map<string, Character>();
   private remotes = new Map<string, Character>();
   private presence!: PresenceClient;
   private voice!: VoiceClient;
@@ -167,6 +176,9 @@ export class OfficeScene extends Phaser.Scene {
   private joystick!: WalkJoystick;
   private chat!: RoomChat;
   private builder!: BuilderPanel;
+  private npcPanel!: NpcPanel;
+  private channelsPanel!: ChannelsPanel;
+  private channelState: LocalChannels = emptyChannels();
   private officesPanel!: OfficesPanel;
   private peoplePanel!: PeoplePanel;
   private tvPanel!: TvPanel;
@@ -205,6 +217,8 @@ export class OfficeScene extends Phaser.Scene {
   private pointerPanned = false;
   private cameraFree = false;
   private panFrom = { x: 0, y: 0 };
+  private pinch: { dist: number; zoom: number } | null = null;
+  private safariPinch = false;
 
   constructor() {
     super('office');
@@ -225,7 +239,6 @@ export class OfficeScene extends Phaser.Scene {
     });
     this.voiceHud = new VoiceHud({
       onMic: () => {
-        void this.voice.unlock();
         void this.voice.toggleMute();
       },
       onDeaf: () => this.voice.toggleDeaf(),
@@ -254,12 +267,31 @@ export class OfficeScene extends Phaser.Scene {
       onExpand: () => this.tvScreens?.collapse(),
       onStopWatch: (guestId) => this.voice.unwatchScreen(guestId),
     });
-    this.chat = new RoomChat((text) => this.sendChat(text));
+    this.chat = new RoomChat((text) => this.sendChat(text), () => !this.channelsPanel.isOpen());
     this.builder = new BuilderPanel({
       onSelect: (id) => this.ghost.setItem(id),
       onReset: () => this.resetFurniture(),
       onClose: () => this.setBuildMode(false),
     });
+    this.npcPanel = new NpcPanel({
+      onClose: () => this.setNpcMode(false),
+      onPlace: () => {
+        this.setBuildMode(false);
+      },
+      onSave: (draft) => this.saveNpcLook(draft),
+      onRemove: (id) => this.removeNpc(id),
+      onSelect: () => undefined,
+    });
+    this.channelsPanel = new ChannelsPanel({
+      onClose: () => this.setChannelMode(false),
+      onCreate: (name) => this.createChannel(name),
+      onRename: (id, name) => this.renameChannel(id, name),
+      onRemove: (id) => this.removeChannel(id),
+      onOpen: (id) => this.openChannelHistory(id),
+      onSend: (id, text) => this.sendChannelChat(id, text),
+    });
+    this.channelState = loadLocalChannels();
+    this.channelsPanel.setChannels(this.channelState.channels);
     this.officesPanel = new OfficesPanel({
       onCreate: () => {
         this.officesPanel.setOpen(false);
@@ -274,6 +306,8 @@ export class OfficeScene extends Phaser.Scene {
     document.querySelector('#people-btn')?.addEventListener('click', (event) => {
       event.stopPropagation();
       this.setBuildMode(false);
+      this.setNpcMode(false);
+      this.setChannelMode(false);
       this.arcadePanel.setOpen(false);
       this.tvPanel.setOpen(false);
       this.hud.setCustomizerOpen(false);
@@ -283,19 +317,29 @@ export class OfficeScene extends Phaser.Scene {
     document.querySelector('#offices-btn')?.addEventListener('click', (event) => {
       event.stopPropagation();
       this.setBuildMode(false);
+      this.setNpcMode(false);
+      this.setChannelMode(false);
       this.arcadePanel.setOpen(false);
       this.tvPanel.setOpen(false);
       this.hud.setCustomizerOpen(false);
       this.peoplePanel.setOpen(false);
       this.officesPanel.setOpen(!this.officesPanel.isOpen());
     });
+    document.querySelector('#npcs-btn')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.setNpcMode(!this.npcPanel.isOpen());
+    });
+    document.querySelector('#channels-btn')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.setChannelMode(!this.channelsPanel.isOpen());
+    });
     this.tvScreens = new TvScreens({
       onExpand: () => this.mediaStage.collapse(),
     });
     this.tvAudio = new TvAudioHud({
-      onChange: (audio) => this.tvScreens.setAudio(audio),
+      onChange: (audio) => this.tvScreens.setAudio(this.listenAudio(audio)),
     });
-    this.tvScreens.setAudio(this.tvAudio.state());
+    this.tvScreens.setAudio(this.listenAudio(this.tvAudio.state()));
     const screenDock = document.querySelector('#screen-audio');
     const screenOverlay = document.querySelector('#screen-overlay-audio');
     if (!(screenDock instanceof HTMLElement) || !(screenOverlay instanceof HTMLElement)) {
@@ -348,22 +392,11 @@ export class OfficeScene extends Phaser.Scene {
     });
     this.lastGood = { x: spawn.x, y: spawn.y };
 
-    for (const npc of COLLEAGUES) {
-      const point = colleagueWorld(npc);
-      const character = new Character(this, point.x, point.y, {
-        appearance: npc.appearance,
-        name: npc.name,
-      });
-      this.colleagues.push(character);
-    }
+    this.replaceNpcs(initialNpcs());
 
     this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
     this.player.root.body.setCollideWorldBounds(true);
     this.player.root.body.checkCollision.none = true;
-    for (const npc of this.colleagues) {
-      npc.root.body.setImmovable(true);
-      npc.root.body.checkCollision.none = true;
-    }
 
     this.cameras.main.startFollow(this.player.root, false, 0.14, 0.14);
     this.fitCamera(this.scale.width, this.scale.height);
@@ -376,9 +409,10 @@ export class OfficeScene extends Phaser.Scene {
     const keyboard = this.input.keyboard;
     if (!keyboard) throw new Error('Keyboard plugin missing');
     this.cursors = keyboard.createCursorKeys();
-    this.keys = keyboard.addKeys('E,G,C,F,R,X,V,W,A,S,D') as KeyMap;
+    this.keys = keyboard.addKeys('E,G,C,F,N,T,R,X,V,W,A,S,D') as KeyMap;
     this.input.mouse?.disableContextMenu();
     const unbindFields = allowTypingInFields(keyboard);
+    const unbindGestures = this.bindSafariZoom();
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       void this.voice.unlock();
@@ -388,15 +422,27 @@ export class OfficeScene extends Phaser.Scene {
         else if (pointer.leftButtonDown()) this.placeAtPointer();
         return;
       }
-      if (!pointer.leftButtonDown()) return;
+      if (this.npcPanel.isPlacing() && (pointer.leftButtonDown() || pointer.wasTouch)) {
+        this.dropNpcAtPointer();
+        return;
+      }
+      if (!pointer.leftButtonDown() && !pointer.wasTouch) return;
       if (this.arcadeOverlay.isOpen() || this.mediaStage.isScreenExpanded()) return;
+      if (this.downPointers().length >= 2) {
+        this.beginPinch();
+        return;
+      }
       this.beginPointer(pointer);
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (this.pinch) {
+        this.updatePinch();
+        return;
+      }
       if (this.panning && pointer.isDown) this.panCamera(pointer);
     });
-    this.input.on('pointerup', () => this.endPointer());
-    this.input.on('pointerupoutside', () => this.endPointer());
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => this.endPointer(pointer));
+    this.input.on('pointerupoutside', (pointer: Phaser.Input.Pointer) => this.endPointer(pointer));
 
     this.input.on(
       'wheel',
@@ -438,6 +484,14 @@ export class OfficeScene extends Phaser.Scene {
         this.tvPanel.setOpen(false);
         return;
       }
+      if (this.npcPanel.isOpen()) {
+        this.setNpcMode(false);
+        return;
+      }
+      if (this.channelsPanel.isOpen()) {
+        this.setChannelMode(false);
+        return;
+      }
       if (this.hud.isTyping()) return;
       if (this.builder.isOpen()) this.setBuildMode(false);
       else this.hud.setCustomizerOpen(false);
@@ -445,7 +499,6 @@ export class OfficeScene extends Phaser.Scene {
 
     keyboard.on('keydown-M', () => {
       if (this.hud.isTyping()) return;
-      void this.voice.unlock();
       void this.voice.toggleMute();
     });
     keyboard.on('keydown-K', () => {
@@ -464,11 +517,13 @@ export class OfficeScene extends Phaser.Scene {
     });
 
     this.presence = new PresenceClient({
-      onWelcome: (peers, tvs, furniture, games) => {
+      onWelcome: (peers, tvs, furniture, npcs, games, channels) => {
         this.clearRemotes();
         for (const peer of peers) this.upsertRemote(peer);
         this.replaceTvs(tvs);
         this.replaceSharedFurniture(furniture);
+        this.replaceNpcs(npcs);
+        this.replaceChannels(channels);
         this.applyGameSessions(games);
       },
       onJoin: (peer) => {
@@ -487,6 +542,10 @@ export class OfficeScene extends Phaser.Scene {
       onChat: (guestId, name, text) => this.hearChat(guestId, name, text),
       onTv: (tvId, platform, videoId) => this.applyNetworkTv(tvId, platform, videoId),
       onFurniture: (places) => this.replaceSharedFurniture(places),
+      onNpcs: (npcs) => this.replaceNpcs(npcs),
+      onChannels: (channels) => this.replaceChannels(channels),
+      onChannelHistory: (channelId, messages) => this.channelsPanel.setHistory(channelId, messages),
+      onChannelMessage: (channelId, message) => this.hearChannelMessage(channelId, message),
       onGame: (sessions) => this.applyGameSessions(sessions),
       onStatus: (status) => {
         this.presenceStatus = status;
@@ -505,6 +564,7 @@ export class OfficeScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off('resize', this.onGameResize, this);
       unbindFields();
+      unbindGestures();
       this.joystick.destroy();
       this.presence.disconnect();
       this.voice.disconnect();
@@ -530,7 +590,7 @@ export class OfficeScene extends Phaser.Scene {
         this.mediaStage.isScreenExpanded() ||
         this.hud.isTyping(),
     );
-    if (this.builder.isOpen()) this.tvScreens.hide();
+    if (this.builder.isOpen() || this.npcPanel.isPlacing()) this.tvScreens.hide();
     else this.tvScreens.tick(this);
 
     if (this.arcadeOverlay.isOpen() || this.mediaStage.isScreenExpanded()) {
@@ -539,7 +599,7 @@ export class OfficeScene extends Phaser.Scene {
       this.flushPose();
       this.tickVoice();
       for (const remote of this.remotes.values()) remote.tickRemote(time, delta);
-      for (const npc of this.colleagues) npc.syncPosition();
+      for (const npc of this.colleagues.values()) npc.syncPosition();
       return;
     }
 
@@ -572,14 +632,30 @@ export class OfficeScene extends Phaser.Scene {
         this.officesPanel.setOpen(false);
         this.peoplePanel.setOpen(false);
         this.setBuildMode(false);
+        this.setNpcMode(false);
+        this.setChannelMode(false);
         this.hud.toggleCustomizer();
       }
       if (Phaser.Input.Keyboard.JustDown(this.keys.F)) {
+        this.setNpcMode(false);
+        this.setChannelMode(false);
         this.setBuildMode(!this.builder.isOpen());
+      }
+      if (Phaser.Input.Keyboard.JustDown(this.keys.N)) {
+        this.setChannelMode(false);
+        this.setNpcMode(!this.npcPanel.isOpen());
+      }
+      if (Phaser.Input.Keyboard.JustDown(this.keys.T)) {
+        this.setChannelMode(!this.channelsPanel.isOpen());
       }
       if (this.builder.isOpen()) {
         if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.ghost.rotate();
         if (Phaser.Input.Keyboard.JustDown(this.keys.X)) this.deleteAtPointer();
+      } else if (this.npcPanel.isOpen()) {
+        if (Phaser.Input.Keyboard.JustDown(this.keys.R) && this.npcPanel.isPlacing()) {
+          this.npcPanel.rotateFacing();
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.keys.X)) this.deleteSelectedNpc();
       }
     }
 
@@ -591,13 +667,15 @@ export class OfficeScene extends Phaser.Scene {
       remote.syncPosition();
     }
 
-    for (let i = 0; i < this.colleagues.length; i += 1) {
-      const npc = this.colleagues[i];
+    for (const place of this.npcPlaces) {
+      const npc = this.colleagues.get(place.id);
+      if (!npc) continue;
       const near = this.player.distanceTo(npc) < 48;
       if (near) {
         npc.faceToward(this.player);
-        if (!npc.speech.visible) npc.say(COLLEAGUES[i].line);
+        if (place.line.length > 0 && !npc.speech.visible) npc.say(place.line, npcSpeechMs(place.line));
       } else {
+        npc.facing = place.facing;
         npc.idle();
       }
       npc.syncPosition();
@@ -625,6 +703,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private tickZoom(delta: number): void {
+    if (this.pinch || this.safariPinch) return;
     const cam = this.cameras.main;
     const target = snapZoom(this.zoomTarget);
     const diff = target - cam.zoom;
@@ -661,6 +740,8 @@ export class OfficeScene extends Phaser.Scene {
       this.tvPanel.setOpen(false);
       this.arcadePanel.setOpen(false);
       this.hud.setCustomizerOpen(false);
+      this.setNpcMode(false);
+      this.setChannelMode(false);
       this.path = [];
       this.pendingSeat = null;
       this.pendingTv = null;
@@ -672,8 +753,43 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  private setNpcMode(open: boolean): void {
+    if (open === this.npcPanel.isOpen()) {
+      if (!open) return;
+    } else {
+      this.npcPanel.setOpen(open);
+    }
+    if (open) {
+      this.setBuildMode(false);
+      this.officesPanel.setOpen(false);
+      this.peoplePanel.setOpen(false);
+      this.tvPanel.setOpen(false);
+      this.arcadePanel.setOpen(false);
+      this.hud.setCustomizerOpen(false);
+      this.setChannelMode(false);
+      this.npcPanel.setNpcs(this.npcPlaces);
+      document.querySelector('#npcs-btn')?.setAttribute('aria-expanded', 'true');
+    } else {
+      document.querySelector('#npcs-btn')?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  private setChannelMode(open: boolean): void {
+    if (open === this.channelsPanel.isOpen()) return;
+    this.channelsPanel.setOpen(open);
+    if (!open) return;
+    this.setBuildMode(false);
+    this.setNpcMode(false);
+    this.officesPanel.setOpen(false);
+    this.peoplePanel.setOpen(false);
+    this.tvPanel.setOpen(false);
+    this.arcadePanel.setOpen(false);
+    this.hud.setCustomizerOpen(false);
+    this.channelsPanel.setChannels(this.channelState.channels);
+  }
+
   private occupants(): Array<{ col: number; row: number }> {
-    const people = [this.player, ...this.colleagues, ...this.remotes.values()];
+    const people = [this.player, ...this.colleagues.values(), ...this.remotes.values()];
     return people.map((who) => worldToTile(who.root.x, who.root.y));
   }
 
@@ -758,6 +874,126 @@ export class OfficeScene extends Phaser.Scene {
 
   private furnitureOnline(): boolean {
     return this.presenceStatus === 'online';
+  }
+
+  private replaceNpcs(npcs: NpcPlacement[]): void {
+    this.npcPlaces = npcs;
+    const keep = new Set(npcs.map((npc) => npc.id));
+    for (const [id, sprite] of this.colleagues) {
+      if (keep.has(id)) continue;
+      sprite.destroy();
+      this.colleagues.delete(id);
+    }
+    for (const place of npcs) {
+      const point = npcWorld(place);
+      let sprite = this.colleagues.get(place.id);
+      if (!sprite) {
+        sprite = new Character(this, point.x, point.y, {
+          appearance: place.appearance,
+          name: place.name,
+        });
+        sprite.root.body.setImmovable(true);
+        sprite.root.body.checkCollision.none = true;
+        this.colleagues.set(place.id, sprite);
+      } else {
+        sprite.setName(place.name);
+        sprite.setAppearance(place.appearance);
+        sprite.root.setPosition(point.x, point.y);
+      }
+      sprite.facing = place.facing;
+      sprite.idle();
+      sprite.syncPosition();
+    }
+    this.npcPanel.setNpcs(npcs);
+    if (!this.furnitureOnline()) saveOfficeNpcs(npcs);
+  }
+
+  private saveNpcLook(draft: NpcDraft): void {
+    if (!draft.id) return;
+    const current = this.npcPlaces.find((npc) => npc.id === draft.id);
+    if (!current) return;
+    const name = sanitizeName(draft.name);
+    if (!name) return;
+    this.commitNpc({
+      id: draft.id,
+      name,
+      line: draft.line.trim(),
+      appearance: draft.appearance,
+      col: current.col,
+      row: current.row,
+      facing: draft.facing,
+    });
+  }
+
+  private dropNpcAtPointer(): void {
+    const tile = this.pointerTile(this.input.activePointer);
+    const existing = this.npcAt(tile.col, tile.row);
+    const draft = this.npcPanel.currentDraft();
+    if (existing && existing.id !== draft?.id) {
+      this.npcPanel.edit(existing.id);
+      return;
+    }
+    if (!this.isOpen(tile) && !(existing && existing.id === draft?.id)) return;
+    if (!draft) return;
+    const name = sanitizeName(draft.name);
+    if (!name) return;
+    const next: NpcPlacement = {
+      id: draft.id ?? (this.furnitureOnline() ? '' : crypto.randomUUID()),
+      name,
+      line: draft.line.trim(),
+      appearance: { ...draft.appearance },
+      col: tile.col,
+      row: tile.row,
+      facing: draft.facing,
+    };
+    this.npcPanel.placed(tile.col, tile.row);
+    if (!draft.id && this.furnitureOnline()) {
+      this.presence.sendNpcAdd({
+        name: next.name,
+        line: next.line,
+        appearance: next.appearance,
+        col: next.col,
+        row: next.row,
+        facing: next.facing,
+      });
+      return;
+    }
+    if (!next.id) return;
+    this.commitNpc(next);
+  }
+
+  private commitNpc(npc: NpcPlacement): void {
+    const next = this.npcPlaces.filter((place) => place.id !== npc.id);
+    next.push(npc);
+    this.replaceNpcs(next);
+    if (this.furnitureOnline()) this.presence.sendNpcUpdate(npc);
+  }
+
+  private removeNpc(id: string): void {
+    this.replaceNpcs(this.npcPlaces.filter((place) => place.id !== id));
+    if (this.furnitureOnline()) this.presence.sendNpcRemove(id);
+  }
+
+  private deleteSelectedNpc(): void {
+    const id = this.npcPanel.selectedId();
+    if (id) this.removeNpc(id);
+  }
+
+  private npcAt(col: number, row: number): NpcPlacement | null {
+    return this.npcPlaces.find((npc) => npc.col === col && npc.row === row) ?? null;
+  }
+
+  private npcAtScreen(x: number, y: number): string | null {
+    const world = this.cameras.main.getWorldPoint(x, y);
+    let best: { id: string; dist: number } | null = null;
+    for (const [id, sprite] of this.colleagues) {
+      const dx = world.x - sprite.root.x;
+      const dy = world.y - (sprite.root.y - 36);
+      const dist = Math.hypot(dx, dy);
+      if (dist > 30) continue;
+      if (!best || dist < best.dist) best = { id, dist };
+    }
+    return best?.id ?? null;
   }
 
   private redrawFurniture(persist = true): void {
@@ -879,7 +1115,18 @@ export class OfficeScene extends Phaser.Scene {
     this.game.canvas.style.cursor = 'grabbing';
   }
 
-  private endPointer(): void {
+  private endPointer(pointer?: Phaser.Input.Pointer): void {
+    if (this.pinch) {
+      if (this.downPointers().length >= 2) return;
+      this.zoomTarget = snapZoom(this.zoomTarget);
+      this.pinch = null;
+      const rest = this.downPointers().find((next) => next !== pointer);
+      if (rest) {
+        this.beginPointer(rest);
+        this.pointerPanned = true;
+      }
+      return;
+    }
     if (!this.panning) return;
     const panned = this.pointerPanned;
     this.panning = false;
@@ -894,6 +1141,74 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     this.clickAt(this.panFrom.x, this.panFrom.y);
+  }
+
+  private downPointers(): Phaser.Input.Pointer[] {
+    return this.input.manager.pointers.filter((pointer) => pointer.active && pointer.isDown);
+  }
+
+  private beginPinch(): void {
+    const [a, b] = this.downPointers();
+    if (!a || !b) return;
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (dist < 12) return;
+    this.panning = false;
+    this.pointerPanned = true;
+    this.pinch = { dist, zoom: this.zoomTarget };
+    this.detachCamera();
+  }
+
+  private updatePinch(): void {
+    if (!this.pinch) return;
+    const [a, b] = this.downPointers();
+    if (!a || !b) return;
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (dist < 12) return;
+    this.applyZoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, this.pinch.zoom * (dist / this.pinch.dist));
+  }
+
+  private applyZoomAt(screenX: number, screenY: number, zoom: number): void {
+    const cam = this.cameras.main;
+    const world = cam.getWorldPoint(screenX, screenY);
+    this.zoomTarget = Phaser.Math.Clamp(zoom, ZOOM_MIN, ZOOM_MAX);
+    cam.setZoom(this.zoomTarget);
+    const after = cam.getWorldPoint(screenX, screenY);
+    cam.scrollX += world.x - after.x;
+    cam.scrollY += world.y - after.y;
+    this.syncCameraBounds();
+  }
+
+  /** iOS Safari steals pinch for page zoom unless gesture events are cancelled. */
+  private bindSafariZoom(): () => void {
+    const canvas = this.game.canvas;
+    let start = this.zoomTarget;
+    const onStart = (event: Event) => {
+      event.preventDefault();
+      this.safariPinch = true;
+      start = this.zoomTarget;
+    };
+    const onChange = (event: Event) => {
+      event.preventDefault();
+      if (this.pinch) return;
+      if (this.builder.isOpen() || this.arcadeOverlay.isOpen() || this.mediaStage.isScreenExpanded()) return;
+      const scale = (event as Event & { scale?: number }).scale;
+      if (!scale || scale <= 0) return;
+      this.detachCamera();
+      this.applyZoomAt(this.scale.width / 2, this.scale.height / 2, start * scale);
+    };
+    const onEnd = (event: Event) => {
+      event.preventDefault();
+      this.safariPinch = false;
+      this.zoomTarget = snapZoom(this.zoomTarget);
+    };
+    canvas.addEventListener('gesturestart', onStart);
+    canvas.addEventListener('gesturechange', onChange);
+    canvas.addEventListener('gestureend', onEnd);
+    return () => {
+      canvas.removeEventListener('gesturestart', onStart);
+      canvas.removeEventListener('gesturechange', onChange);
+      canvas.removeEventListener('gestureend', onEnd);
+    };
   }
 
   private detachCamera(): void {
@@ -927,6 +1242,16 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
 
+    const overNpc = this.npcAtScreen(this.input.activePointer.x, this.input.activePointer.y);
+    if (this.npcPanel.isPlacing()) {
+      const tile = this.pointerTile(this.input.activePointer);
+      const ok = this.isOpen(tile) || Boolean(overNpc);
+      const { x, y } = tileToWorld(tile.col, tile.row);
+      this.showTileHover(x, y);
+      this.game.canvas.style.cursor = ok ? 'pointer' : 'not-allowed';
+      return;
+    }
+
     if (this.pointerPanned) {
       this.hover.clear().setVisible(false);
       this.game.canvas.style.cursor = 'grabbing';
@@ -935,6 +1260,12 @@ export class OfficeScene extends Phaser.Scene {
 
     const overPerson = this.remoteAtScreen(this.input.activePointer.x, this.input.activePointer.y);
     if (overPerson) {
+      this.hover.clear().setVisible(false);
+      this.game.canvas.style.cursor = 'pointer';
+      return;
+    }
+
+    if (overNpc) {
       this.hover.clear().setVisible(false);
       this.game.canvas.style.cursor = 'pointer';
       return;
@@ -1099,6 +1430,8 @@ export class OfficeScene extends Phaser.Scene {
     this.pendingArcade = null;
     this.path = [];
     this.setBuildMode(false);
+    this.setNpcMode(false);
+    this.setChannelMode(false);
     this.hud.setCustomizerOpen(false);
     this.arcadePanel.setOpen(false);
     this.tvPanel.open(tv);
@@ -1107,7 +1440,7 @@ export class OfficeScene extends Phaser.Scene {
   private playTv(tv: TvSpot, videoId: string): void {
     this.netTvs.set(tv.id, videoId);
     this.tvAudio.unmuteIntent();
-    this.tvScreens.play(tv, videoId);
+    this.tvScreens.play(tv, videoId, true);
     this.tvAudio.setActive(true);
     this.presence.sendTv(tv.id, 'youtube', videoId);
   }
@@ -1183,6 +1516,12 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private clickAt(x: number, y: number): void {
+    const npcId = this.npcAtScreen(x, y);
+    if (npcId && !this.builder.isOpen()) {
+      this.setNpcMode(true);
+      this.npcPanel.edit(npcId);
+      return;
+    }
     const guestId = this.remoteAtScreen(x, y);
     if (guestId) {
       this.arcadePanel.setOpen(false);
@@ -1231,6 +1570,8 @@ export class OfficeScene extends Phaser.Scene {
       this.useSeat(clickedSeat);
       return;
     }
+
+    if (!this.isOpen(goal)) return;
 
     if (this.seated) this.standUp();
     const start = worldToTile(this.player.root.x, this.player.root.y);
@@ -1294,6 +1635,83 @@ export class OfficeScene extends Phaser.Scene {
     who?.say(text, Math.min(7000, 1600 + text.length * 70));
   }
 
+  private replaceChannels(channels: ChannelSummary[]): void {
+    this.channelState.channels = channels;
+    const keep = new Set(channels.map((channel) => channel.id));
+    for (const id of Object.keys(this.channelState.messages)) {
+      if (!keep.has(id)) delete this.channelState.messages[id];
+    }
+    this.channelsPanel.setChannels(channels);
+    if (!this.furnitureOnline()) saveLocalChannels(this.channelState);
+  }
+
+  private createChannel(name: string): void {
+    if (this.furnitureOnline()) {
+      this.presence.sendChannelAdd(name);
+      return;
+    }
+    this.replaceChannels([...this.channelState.channels, { id: crypto.randomUUID(), name }]);
+  }
+
+  private renameChannel(id: string, name: string): void {
+    if (this.furnitureOnline()) {
+      this.presence.sendChannelRename(id, name);
+      return;
+    }
+    this.replaceChannels(
+      this.channelState.channels.map((channel) => (channel.id === id ? { ...channel, name } : channel)),
+    );
+  }
+
+  private removeChannel(id: string): void {
+    if (this.furnitureOnline()) {
+      this.presence.sendChannelRemove(id);
+      return;
+    }
+    delete this.channelState.messages[id];
+    this.replaceChannels(this.channelState.channels.filter((channel) => channel.id !== id));
+  }
+
+  private openChannelHistory(id: string): void {
+    if (this.furnitureOnline()) {
+      this.presence.sendChannelHistory(id);
+      return;
+    }
+    this.channelsPanel.setHistory(id, this.channelState.messages[id] ?? []);
+  }
+
+  private sendChannelChat(id: string, text: string): void {
+    if (this.furnitureOnline()) {
+      this.presence.sendChannelChat(id, text);
+      return;
+    }
+    const name = sanitizeName(this.player.displayName) ?? this.player.displayName;
+    this.hearChannelMessage(id, {
+      id: crypto.randomUUID(),
+      guestId: this.localGuestId,
+      name,
+      text,
+      at: Date.now(),
+    });
+  }
+
+  private hearChannelMessage(channelId: string, message: ChannelMessage): void {
+    const list = this.channelState.messages[channelId] ?? [];
+    if (!list.some((item) => item.id === message.id)) {
+      list.push(message);
+      if (list.length > CHANNEL_HISTORY) list.splice(0, list.length - CHANNEL_HISTORY);
+      this.channelState.messages[channelId] = list;
+    }
+    this.channelState.channels = this.channelState.channels.map((channel) =>
+      channel.id === channelId
+        ? { ...channel, lastText: message.text, lastName: message.name, lastAt: message.at }
+        : channel,
+    );
+    this.channelsPanel.setChannels(this.channelState.channels);
+    this.channelsPanel.appendMessage(channelId, message);
+    if (!this.furnitureOnline()) saveLocalChannels(this.channelState);
+  }
+
   private flushPose(force = false): void {
     const pose = this.player.snapshot();
     this.presence.updateJoinPose(pose);
@@ -1349,7 +1767,13 @@ export class OfficeScene extends Phaser.Scene {
       camera: this.voice.isCameraEnabled(),
       screen: this.voice.isScreenShareEnabled(),
     });
+    this.tvScreens?.setAudio(this.listenAudio(this.tvAudio?.state() ?? { muted: true, volume: 80 }));
     this.syncShareInvites();
+  }
+
+  private listenAudio(audio: { muted: boolean; volume: number }): { muted: boolean; volume: number } {
+    if (this.voice.isDeaf()) return { muted: true, volume: audio.volume };
+    return audio;
   }
 
   private syncShareInvites(): void {
@@ -1481,6 +1905,8 @@ export class OfficeScene extends Phaser.Scene {
     this.pendingArcade = null;
     this.path = [];
     this.setBuildMode(false);
+    this.setNpcMode(false);
+    this.setChannelMode(false);
     this.hud.setCustomizerOpen(false);
     this.tvPanel.setOpen(false);
     this.arcadePanel.setBusy(true);

@@ -19,7 +19,60 @@ type Wrapper = {
 };
 
 const CAMERA = { w: 80, h: 80 };
-const SCREEN = { w: 256, h: 144 };
+
+function isIosDevice(): boolean {
+  const touch = (navigator.maxTouchPoints ?? 0) > 0;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && touch);
+}
+
+function deviceAngle(): number {
+  const fromScreen = screen.orientation?.angle;
+  if (typeof fromScreen === 'number') return ((fromScreen % 360) + 360) % 360;
+  const legacy = (window as Window & { orientation?: number }).orientation;
+  if (typeof legacy === 'number') return ((legacy % 360) + 360) % 360;
+  return window.innerWidth >= window.innerHeight ? 90 : 0;
+}
+
+function screenTileSize(video: HTMLVideoElement): { w: number; h: number } {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) return { w: 256, h: 144 };
+  const landscape = vw >= vh;
+  if (landscape) {
+    const w = 256;
+    return { w, h: Math.max(80, Math.min(160, Math.round((w * vh) / vw))) };
+  }
+  const h = 180;
+  return { w: Math.max(72, Math.min(160, Math.round((h * vw) / vh))), h };
+}
+
+/** iOS rotates MediaStream <video> with the device; screen pixels are already oriented. */
+function layoutScreenVideo(video: HTMLVideoElement): void {
+  const parent = video.parentElement;
+  if (!parent) return;
+  const landscape = window.innerWidth > window.innerHeight;
+  const angle = deviceAngle();
+  const rotate = isIosDevice() && landscape && (angle === 90 || angle === 270);
+  video.style.objectFit = 'contain';
+  video.style.position = 'absolute';
+  video.style.transformOrigin = 'center center';
+  if (rotate) {
+    const pw = Math.max(1, parent.clientWidth);
+    const ph = Math.max(1, parent.clientHeight);
+    video.style.width = `${ph}px`;
+    video.style.height = `${pw}px`;
+    video.style.left = `${(pw - ph) / 2}px`;
+    video.style.top = `${(ph - pw) / 2}px`;
+    video.style.right = 'auto';
+    video.style.bottom = 'auto';
+    video.style.transform = `rotate(${angle === 90 ? -90 : 90}deg)`;
+    return;
+  }
+  video.style.width = '100%';
+  video.style.height = '100%';
+  video.style.inset = '0';
+  video.style.transform = '';
+}
 
 type MediaStageHandlers = {
   onExpand?: () => void;
@@ -93,6 +146,7 @@ export class MediaStage {
       if (expanded && tile.kind === 'screen') {
         wrapper.root.style.display = 'none';
         this.mountOverlay(tile, anchor?.name ?? '');
+        this.syncScreenStage(tile.element);
         continue;
       }
 
@@ -121,7 +175,7 @@ export class MediaStage {
       }
 
       this.parkVideo(wrapper, tile);
-      const size = tile.kind === 'screen' ? SCREEN : CAMERA;
+      const size = tile.kind === 'screen' ? screenTileSize(wrapper.video) : CAMERA;
       const lift = tile.kind === 'screen' ? 118 : sharing.has(tile.guestId) ? 52 : 78;
       const point = worldToCanvas(scene, anchor!.x, anchor!.y - lift);
       wrapper.root.style.width = `${size.w}px`;
@@ -131,6 +185,7 @@ export class MediaStage {
       wrapper.label.textContent = tile.kind === 'screen' ? `Tela · ${name}` : '';
       wrapper.label.style.display = tile.kind === 'screen' ? 'block' : 'none';
       wrapper.video.classList.toggle('media-mirror', tile.kind === 'camera' && tile.local);
+      if (tile.kind === 'screen') layoutScreenVideo(wrapper.video);
     }
 
     for (const key of [...this.wrappers.keys()]) {
@@ -167,6 +222,21 @@ export class MediaStage {
     }
     this.overlayTitle.textContent = 'Tela';
     this.overlayCopy.textContent = tile.local ? 'A sua tela' : name || 'Alguém';
+    this.syncScreenStage(tile.element);
+  }
+
+  private syncScreenStage(video: HTMLVideoElement): void {
+    const stage = this.overlay.querySelector('.arcade-stage');
+    if (!(stage instanceof HTMLElement)) return;
+    const compact = window.matchMedia('(max-width: 860px), (max-height: 640px)').matches;
+    if (compact) {
+      stage.style.aspectRatio = 'auto';
+    } else if (video.videoWidth > 0 && video.videoHeight > 0 && !isIosDevice()) {
+      stage.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    } else {
+      stage.style.aspectRatio = '';
+    }
+    layoutScreenVideo(video);
   }
 
   private releaseOverlay(): void {

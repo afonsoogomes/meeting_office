@@ -2,8 +2,10 @@ import {
   DEFAULT_OFFICE_SLUG,
   OFFICE_SLUG_RE,
   sanitizeFurniturePlacement,
+  sanitizeNpcPlacement,
   sanitizeOfficeSlug,
   type FurniturePlacement,
+  type NpcPlacement,
 } from './protocol';
 
 export { DEFAULT_OFFICE_SLUG, OFFICE_SLUG_RE, sanitizeOfficeSlug };
@@ -65,6 +67,7 @@ export type OfficeSnapshot = {
   name: string;
   spec: OfficeSpec;
   furniture: FurniturePlacement[];
+  npcs: NpcPlacement[];
 };
 
 const TILE_KEY_RE = /^[a-z][a-z0-9-]{0,47}$/;
@@ -202,7 +205,14 @@ export function parseOfficeSnapshot(value: unknown): OfficeSnapshot | null {
     const place = sanitizeFurniturePlacement(item);
     if (place) furniture.push(place);
   }
-  return { slug, name, spec, furniture };
+  const npcs: NpcPlacement[] = [];
+  if (Array.isArray(value.npcs)) {
+    for (const item of value.npcs) {
+      const npc = sanitizeNpcPlacement(item);
+      if (npc) npcs.push(npc);
+    }
+  }
+  return { slug, name, spec, furniture, npcs };
 }
 
 export function specFromHouse(house: OfficeSpec): OfficeSpec {

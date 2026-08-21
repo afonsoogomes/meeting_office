@@ -1,10 +1,12 @@
 import {
   ConnectionState,
+  createLocalAudioTrack,
   RemoteAudioTrack,
   Room,
   RoomEvent,
   Track,
   VideoPresets,
+  type LocalAudioTrack,
   type RemoteTrackPublication,
 } from 'livekit-client';
 import { voiceGain, type VoicePlace } from '../audio/spatial';
@@ -51,6 +53,9 @@ export class VoiceClient {
     videoCaptureDefaults: {
       resolution: VideoPresets.h360.resolution,
     },
+    publishDefaults: {
+      stopMicTrackOnMute: false,
+    },
   });
   private readonly audios = new Map<string, AudioSlot>();
   private readonly tiles = new Map<string, MediaTile>();
@@ -66,6 +71,9 @@ export class VoiceClient {
   private closed = false;
   private deaf = false;
   private wantMic = false;
+  private armedTrack: LocalAudioTrack | null = null;
+  private armWait: Promise<void> | null = null;
+  private connectLock: Promise<boolean> | null = null;
   private status: VoiceStatus = 'off';
   private resuming = false;
   private resumeQueued = false;
@@ -148,8 +156,8 @@ export class VoiceClient {
   }
 
   isMicMuted(): boolean {
-    if (this.room.state !== ConnectionState.Connected) return true;
-    return !this.room.localParticipant.isMicrophoneEnabled;
+    if (this.deaf) return true;
+    return !this.wantMic;
   }
 
   isCameraEnabled(): boolean {
@@ -228,53 +236,44 @@ export class VoiceClient {
     this.localId = guestId;
     this.localName = name;
     this.officeSlug = officeSlug;
+    this.closed = false;
+    this.bindLifecycle();
+    void this.ensureLive();
   }
 
   async connect(guestId: string, name: string): Promise<void> {
     this.localId = guestId;
     this.localName = name;
-    this.closed = false;
-    this.bindLifecycle();
-    claimCallAudio();
-    if (this.room.state === ConnectionState.Connected) {
-      this.setStatus('live');
-      return;
-    }
-    this.setStatus('connecting');
-    try {
-      const session = await fetchSession(guestId, name, this.officeSlug);
-      await this.room.connect(session.url, session.token);
-      this.setStatus('live');
-      void this.resumeAfterInterrupt();
-    } catch {
-      this.setStatus('off');
-    }
+    await this.ensureLive();
   }
 
   async unlock(): Promise<void> {
     if (this.closed) return;
-    if (this.room.state !== ConnectionState.Connected && this.localId) {
-      await this.ensureLive();
-    }
-    if (this.room.state !== ConnectionState.Connected) return;
     claimCallAudio();
+    // getUserMedia must start in this gesture turn — don't await connect first.
+    void this.armMic();
+    void this.ensureLive();
+    if (this.room.state !== ConnectionState.Connected) return;
     // Recycle + play in this turn — Safari user-activation dies after `await`.
     if (this.hasPausedRemoteAudio()) this.recycleAudioElements();
     void this.room.startAudio();
     for (const slot of this.audios.values()) this.playIfPaused(slot.element, true);
-    await this.restoreMic();
   }
 
   async toggleMute(): Promise<void> {
-    if (!(await this.ensureLive())) return;
     const enable = this.isMicMuted();
+    if (enable) this.setDeaf(false);
     this.wantMic = enable;
-    try {
-      await this.room.localParticipant.setMicrophoneEnabled(enable);
-    } catch {
-      return;
-    }
     this.onChange();
+    if (enable) void this.armMic();
+    void this.unlock();
+    if (!(await this.ensureLive())) return;
+    try {
+      await this.applyMic();
+    } catch {
+      if (enable) this.wantMic = false;
+      this.onChange();
+    }
   }
 
   async toggleCamera(): Promise<void> {
@@ -291,11 +290,7 @@ export class VoiceClient {
   async toggleScreenShare(): Promise<void> {
     if (!(await this.ensureLive())) return;
     try {
-      await this.room.localParticipant.setScreenShareEnabled(!this.isScreenShareEnabled(), {
-        audio: true,
-        resolution: { width: 1920, height: 1080, frameRate: 15 },
-        surfaceSwitching: 'include',
-      });
+      await this.room.localParticipant.setScreenShareEnabled(!this.isScreenShareEnabled(), screenShareCapture());
     } catch {
       return;
     }
@@ -304,9 +299,12 @@ export class VoiceClient {
   }
 
   toggleDeaf(): void {
-    this.deaf = !this.deaf;
+    this.setDeaf(!this.deaf);
+    if (this.deaf) {
+      this.wantMic = false;
+      void this.disableMic();
+    }
     this.onChange();
-    if (!this.deaf) void this.resumeAfterInterrupt();
   }
 
   tick(places: Map<string, VoicePlace>): void {
@@ -320,19 +318,50 @@ export class VoiceClient {
 
   disconnect(): void {
     this.closed = true;
+    this.wantMic = false;
     this.showResume(false);
     this.clearResumeTimers();
     this.unbindLifecycle();
     this.dropAll();
+    this.dropArmedMic();
+    this.connectLock = null;
     this.room.disconnect();
     this.setStatus('off');
   }
 
   private async ensureLive(): Promise<boolean> {
-    if (this.room.state !== ConnectionState.Connected && this.localId) {
-      await this.connect(this.localId, this.localName);
+    if (this.closed) return false;
+    if (this.room.state === ConnectionState.Connected) return true;
+    if (!this.localId) return false;
+    if (!this.connectLock) {
+      this.connectLock = this.joinRoom().finally(() => {
+        this.connectLock = null;
+      });
     }
-    return this.room.state === ConnectionState.Connected;
+    return this.connectLock;
+  }
+
+  private async joinRoom(): Promise<boolean> {
+    if (this.room.state === ConnectionState.Connected) {
+      this.setStatus('live');
+      return true;
+    }
+    this.bindLifecycle();
+    claimCallAudio();
+    this.setStatus('connecting');
+    try {
+      const session = await fetchSession(this.localId, this.localName, this.officeSlug);
+      if (this.closed) return false;
+      await this.room.connect(session.url, session.token);
+      this.setStatus('live');
+      await this.publishArmed(this.wantMic);
+      void this.maybeArmIfGranted();
+      void this.resumeAfterInterrupt();
+      return true;
+    } catch {
+      this.setStatus('off');
+      return false;
+    }
   }
 
   private syncSubscriptions(places: Map<string, VoicePlace>, localRoom: string): void {
@@ -439,7 +468,19 @@ export class VoiceClient {
     element.autoplay = true;
     element.playsInline = true;
     element.muted = true;
+    element.setAttribute('playsinline', 'true');
+    element.setAttribute('webkit-playsinline', 'true');
     element.setAttribute('data-media', key);
+    if (kind === 'screen') {
+      element.classList.add('screen-share-video');
+      if (local) {
+        try {
+          track.mediaStreamTrack.contentHint = 'detail';
+        } catch {
+          /* Safari may ignore */
+        }
+      }
+    }
     this.tiles.set(key, { guestId, kind, element, local });
     this.onChange();
   }
@@ -501,9 +542,7 @@ export class VoiceClient {
   private applyGain(slot: AudioSlot, gain: number): void {
     const want = this.deaf ? 0 : gain;
     const silent = want <= 0;
-    // Never setVolume(0): Safari often won't restore that element. Keep the
-    // graph at full gain and mute the tag instead, so walking back is unmute.
-    const level = silent ? 1 : want;
+    const level = silent ? 0 : want;
     const token = silent ? 0 : level;
     if (this.appliedVolume.get(slot.key) !== token || slot.element.muted !== silent) {
       this.appliedVolume.set(slot.key, token);
@@ -511,11 +550,45 @@ export class VoiceClient {
       else slot.element.volume = level;
       slot.element.muted = silent;
     }
+    if (this.deaf) {
+      slot.element.pause();
+      return;
+    }
     this.playIfPaused(slot.element);
   }
 
+  private setDeaf(deaf: boolean): void {
+    if (this.deaf === deaf) {
+      if (deaf) this.applyOutput();
+      return;
+    }
+    this.deaf = deaf;
+    this.applyOutput();
+    if (deaf) {
+      this.showResume(false);
+      return;
+    }
+    for (const slot of this.audios.values()) this.playIfPaused(slot.element, true);
+  }
+
+  private applyOutput(): void {
+    for (const slot of this.audios.values()) {
+      this.appliedVolume.delete(slot.key);
+      if (slot.source === Track.Source.ScreenShareAudio) {
+        this.applyGain(slot, this.watching.has(slot.guestId) ? this.screenLevel : 0);
+        continue;
+      }
+      this.applyGain(slot, (this.lastGain.get(slot.guestId) ?? 1) * this.peerLevel(slot.guestId));
+    }
+  }
+
+  private async disableMic(): Promise<void> {
+    this.wantMic = false;
+    await this.applyMic();
+  }
+
   private playIfPaused(element: HTMLAudioElement, force = false): void {
-    if (this.closed || document.visibilityState === 'hidden') return;
+    if (this.deaf || this.closed || document.visibilityState === 'hidden') return;
     const key = element.getAttribute('data-voice');
     if (!key || this.audios.get(key)?.element !== element) return;
     if (!element.paused && !element.ended) return;
@@ -566,7 +639,7 @@ export class VoiceClient {
   }
 
   private readonly onAudioPause = (event: Event): void => {
-    if (document.visibilityState === 'hidden') return;
+    if (this.deaf || document.visibilityState === 'hidden') return;
     if (!(event.target instanceof HTMLAudioElement)) return;
     this.playIfPaused(event.target);
   };
@@ -586,7 +659,12 @@ export class VoiceClient {
   };
 
   private readonly onUserGesture = (): void => {
-    if (this.closed || this.status !== 'live') return;
+    if (this.closed) return;
+    void this.armMic();
+    if (this.status !== 'live') {
+      void this.ensureLive();
+      return;
+    }
     if (!this.playbackBlocked && this.room.canPlaybackAudio && !this.hasPausedRemoteAudio()) return;
     void this.unlock();
   };
@@ -656,27 +734,89 @@ export class VoiceClient {
   }
 
   private async restoreMic(): Promise<void> {
-    if (!this.wantMic) return;
+    await this.applyMic();
+  }
+
+  private armMic(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.armedTrack) return Promise.resolve();
+    if (this.armWait) return this.armWait;
+    this.armWait = this.captureMic().finally(() => {
+      this.armWait = null;
+    });
+    return this.armWait;
+  }
+
+  private async captureMic(): Promise<void> {
+    if (this.armedTrack) return;
     try {
-      if (!this.room.localParticipant.isMicrophoneEnabled) {
-        await this.room.localParticipant.setMicrophoneEnabled(true);
+      const track = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
+      if (this.closed) {
+        track.stop();
         return;
       }
-      const pub = this.room.localParticipant.getTrackPublication(Track.Source.Microphone);
-      const track = pub?.track;
-      const media = track?.mediaStreamTrack;
-      if (!media || media.readyState !== 'live' || media.muted) {
-        if (track && 'restartTrack' in track && typeof track.restartTrack === 'function') {
-          await track.restartTrack();
-        }
+      track.stopOnMute = false;
+      if (!this.wantMic) await track.mute();
+      this.armedTrack = track;
+      await this.publishArmed(this.wantMic);
+    } catch {
+      if (this.wantMic) {
+        this.wantMic = false;
+        this.onChange();
       }
+    }
+  }
+
+  private async maybeArmIfGranted(): Promise<void> {
+    if (this.closed || this.armedTrack || this.armWait) return;
+    try {
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (status.state === 'granted') void this.armMic();
+    } catch {
+      return;
+    }
+  }
+
+  private async applyMic(): Promise<void> {
+    if (this.wantMic && !this.armedTrack) await this.armMic();
+    await this.publishArmed(this.wantMic);
+    this.onChange();
+  }
+
+  private async publishArmed(unmuted: boolean): Promise<void> {
+    if (this.room.state !== ConnectionState.Connected) return;
+    const track = this.armedTrack;
+    if (track) {
+      if (unmuted) await track.unmute();
+      else await track.mute();
+    }
+    try {
+      if (track && !this.room.localParticipant.getTrackPublication(Track.Source.Microphone)) {
+        await this.room.localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+      }
+      await this.room.localParticipant.setMicrophoneEnabled(unmuted);
+    } catch {
+      return;
+    }
+  }
+
+  private dropArmedMic(): void {
+    this.armWait = null;
+    const track = this.armedTrack;
+    this.armedTrack = null;
+    try {
+      track?.stop();
     } catch {
       return;
     }
   }
 
   private showResume(need: boolean): void {
-    this.resumeBtn?.classList.toggle('hidden', this.closed || !need);
+    this.resumeBtn?.classList.toggle('hidden', this.closed || this.deaf || !need);
   }
 }
 
@@ -688,6 +828,30 @@ function kindFromSource(source: Track.Source): MediaKind | null {
   if (source === Track.Source.Camera) return 'camera';
   if (source === Track.Source.ScreenShare) return 'screen';
   return null;
+}
+
+function isTouchDevice(): boolean {
+  return (navigator.maxTouchPoints ?? 0) > 0 || window.matchMedia('(pointer: coarse)').matches;
+}
+
+function screenShareCapture(): {
+  audio: boolean;
+  contentHint: 'detail';
+  surfaceSwitching: 'include';
+  resolution?: { width: number; height: number; frameRate: number };
+} {
+  // LiveKit skips size constraints on Safari 17+ for a reason: forcing
+  // 1920×1080 on iPad/iPhone encodes a landscape frame that Safari then
+  // rotates with the device, so the share appears on its side.
+  if (isTouchDevice()) {
+    return { audio: true, contentHint: 'detail', surfaceSwitching: 'include' };
+  }
+  return {
+    audio: true,
+    contentHint: 'detail',
+    surfaceSwitching: 'include',
+    resolution: { width: 1920, height: 1080, frameRate: 15 },
+  };
 }
 
 async function fetchSession(guestId: string, name: string, office = ''): Promise<VoiceSession> {

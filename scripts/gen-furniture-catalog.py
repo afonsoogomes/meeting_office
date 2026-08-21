@@ -342,11 +342,12 @@ def frames_for(typ: str, tw: int, th: int, rotations: int) -> list[dict]:
             {"slot": "up", "dx": tw * 2, "dy": 0, "tw": tw, "th": th},
         ]
     if typ == "couch" and rotations == 4:
-        side = 2
+        # Stardew swaps the source rect for couches (3×2 → 2×3). The extra tile
+        # hangs south of the default 2-tall art — that's the missing feet/arm.
         return [
             down,
-            {"slot": "right", "dx": tw, "dy": 0, "tw": side, "th": th},
-            {"slot": "up", "dx": tw + side, "dy": 0, "tw": tw, "th": th},
+            {"slot": "right", "dx": tw, "dy": 0, "tw": th, "th": tw},
+            {"slot": "up", "dx": tw + th, "dy": 0, "tw": tw, "th": th},
         ]
     if typ in {"bench", "dresser"} and rotations == 4:
         return [
@@ -502,6 +503,9 @@ def main() -> None:
             if typ in FRONT_DROP_TYPES and item_id != "rug":
                 drop = front_drop(px, fx, fy, fw, fh, occupied)
                 fh += drop
+            elif frame["th"] > th:
+                # Couch side art is taller than the down frame; extra pixels hang south.
+                drop = (frame["th"] - th) * TILE
             slice_out: dict = {"key": key, "x": fx, "y": fy, "w": fw, "h": fh}
             if drop:
                 slice_out["drop"] = drop

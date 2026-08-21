@@ -10,7 +10,7 @@ import { buildHouse, type BuiltHouse, type HouseSpec } from './house';
 import { OFFICE_HOUSE } from './houses/office';
 import type { OfficeSnapshot, OfficeSpec } from '../../shared/office';
 import { DEFAULT_OFFICE_NAME } from '../../shared/office-default';
-import { DEFAULT_OFFICE_SLUG } from '../../shared/protocol';
+import { DEFAULT_OFFICE_SLUG, sanitizeNpcPlacement, type NpcPlacement } from '../../shared/protocol';
 
 export { TILE_SIZE, Tile, SOLID_TILES, isWalkable } from './constants';
 export type { TileId } from './constants';
@@ -21,6 +21,7 @@ export const FURNITURE = OFFICE_HOUSE.furniture;
 
 const FURNITURE_STORAGE = 'meeting-office-furniture-v5';
 const FURNITURE_STORAGE_V4 = 'meeting-office-furniture-v4';
+const NPC_STORAGE = 'meeting-office-npcs-v1';
 
 export function defaultFurniture(): FurniturePlace[] {
   return clonePlaces(OFFICE_HOUSE.furniture);
@@ -141,6 +142,7 @@ let activeHouse: HouseSpec = OFFICE_HOUSE;
 let cached: BuiltHouse | null = null;
 let furnitureSync: FurnitureSync = 'local';
 let bootFurniture: FurniturePlace[] | null = null;
+let bootNpcs: NpcPlacement[] | null = null;
 let liveOfficeSlug = DEFAULT_OFFICE_SLUG;
 let liveOfficeName = DEFAULT_OFFICE_NAME;
 
@@ -182,6 +184,7 @@ export function applyOfficeSnapshot(snapshot: OfficeSnapshot): void {
   applyHouseSpec(snapshot.spec);
   furnitureSync = 'remote';
   bootFurniture = clonePlaces(snapshot.furniture);
+  bootNpcs = cloneNpcs(snapshot.npcs);
   liveOfficeSlug = snapshot.slug;
   liveOfficeName = snapshot.name;
 }
@@ -212,6 +215,7 @@ export function useLocalOffice(): void {
   });
   furnitureSync = 'local';
   bootFurniture = null;
+  bootNpcs = null;
 }
 
 export function isFurnitureRemote(): boolean {
@@ -221,6 +225,38 @@ export function isFurnitureRemote(): boolean {
 export function initialFurniture(): FurniturePlace[] {
   const places = furnitureSync === 'remote' && bootFurniture ? clonePlaces(bootFurniture) : loadOfficeFurniture();
   return liftWallHangings(places, createWallGrid());
+}
+
+export function initialNpcs(): NpcPlacement[] {
+  if (furnitureSync === 'remote' && bootNpcs) return cloneNpcs(bootNpcs);
+  return loadLocalNpcs();
+}
+
+export function saveOfficeNpcs(npcs: NpcPlacement[]): void {
+  try {
+    localStorage.setItem(`${NPC_STORAGE}:${liveOfficeSlug}`, JSON.stringify(npcs));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function loadLocalNpcs(): NpcPlacement[] {
+  try {
+    const raw = localStorage.getItem(`${NPC_STORAGE}:${liveOfficeSlug}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      const npc = sanitizeNpcPlacement(item);
+      return npc ? [npc] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function cloneNpcs(npcs: NpcPlacement[]): NpcPlacement[] {
+  return npcs.map((npc) => ({ ...npc, appearance: { ...npc.appearance } }));
 }
 
 function roomsFrom(house: HouseSpec): Room[] {

@@ -51,6 +51,32 @@ export type FurniturePlacement = {
   facing?: Facing;
 };
 
+export type NpcPlacement = {
+  id: string;
+  name: string;
+  line: string;
+  appearance: Appearance;
+  col: number;
+  row: number;
+  facing: Facing;
+};
+
+export type ChannelSummary = {
+  id: string;
+  name: string;
+  lastText?: string;
+  lastName?: string;
+  lastAt?: number;
+};
+
+export type ChannelMessage = {
+  id: string;
+  guestId: string;
+  name: string;
+  text: string;
+  at: number;
+};
+
 export type ClientMessage =
   | { type: 'join'; guestId: string; name: string; appearance: Appearance; pose: Pose; office: string }
   | { type: 'state'; pose: Pose }
@@ -61,6 +87,23 @@ export type ClientMessage =
   | { type: 'furniture_update'; id: string; col: number; row: number; facing?: Facing }
   | { type: 'furniture_remove'; id: string }
   | { type: 'furniture_reset' }
+  | { type: 'npc_add'; name: string; line: string; appearance: Appearance; col: number; row: number; facing: Facing }
+  | {
+      type: 'npc_update';
+      id: string;
+      name: string;
+      line: string;
+      appearance: Appearance;
+      col: number;
+      row: number;
+      facing: Facing;
+    }
+  | { type: 'npc_remove'; id: string }
+  | { type: 'channel_add'; name: string }
+  | { type: 'channel_rename'; id: string; name: string }
+  | { type: 'channel_remove'; id: string }
+  | { type: 'channel_history'; channelId: string }
+  | { type: 'channel_chat'; channelId: string; text: string }
   | { type: 'ping' };
 
 export type ServerMessage =
@@ -69,6 +112,8 @@ export type ServerMessage =
       peers: Peer[];
       tvs: TvScreen[];
       furniture: FurniturePlacement[];
+      npcs: NpcPlacement[];
+      channels: ChannelSummary[];
       games: GameSessionView[];
     }
   | { type: 'join'; peer: Peer }
@@ -78,6 +123,10 @@ export type ServerMessage =
   | { type: 'chat'; guestId: string; name: string; text: string }
   | { type: 'tv'; tvId: string; platform: TvPlatform | null; videoId: string | null }
   | { type: 'furniture'; places: FurniturePlacement[] }
+  | { type: 'npcs'; npcs: NpcPlacement[] }
+  | { type: 'channels'; channels: ChannelSummary[] }
+  | { type: 'channel_history'; channelId: string; messages: ChannelMessage[] }
+  | { type: 'channel_message'; channelId: string; message: ChannelMessage }
   | { type: 'game'; sessions: GameSessionView[] }
   | { type: 'pong' };
 
@@ -103,7 +152,14 @@ const TILE_MAX = 96;
 export const MAX_PEERS = 24;
 export const MAX_TVS = 32;
 export const MAX_FURNITURE = 400;
+export const MAX_NPCS = 32;
+export const MAX_CHANNELS = 24;
 export const CHAT_MAX = 80;
+export const CHANNEL_MESSAGE_MAX = 280;
+export const CHANNEL_NAME_MAX = 32;
+export const CHANNEL_HISTORY = 200;
+export const CHANNEL_STORE_MAX = 2000;
+export const NPC_LINE_MAX = 80;
 export const NAME_MAX = 18;
 export const WS_HEARTBEAT_MS = 15_000;
 
@@ -177,6 +233,69 @@ export function sanitizeChat(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
+export function sanitizeChannelName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.replace(/\s+/g, ' ').trim().slice(0, CHANNEL_NAME_MAX);
+  return name.length >= 2 ? name : null;
+}
+
+export function sanitizeChannelMessage(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value
+    .replace(/\r\n/g, '\n')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, CHANNEL_MESSAGE_MAX);
+  return text.length > 0 ? text : null;
+}
+
+export function sanitizeChannelSummary(value: unknown): ChannelSummary | null {
+  if (!isRecord(value)) return null;
+  const id = sanitizeFurnitureId(value.id);
+  const name = sanitizeChannelName(value.name);
+  if (!id || !name) return null;
+  const summary: ChannelSummary = { id, name };
+  const lastText = typeof value.lastText === 'string' ? value.lastText.trim().slice(0, CHANNEL_MESSAGE_MAX) : '';
+  const lastName = sanitizeName(value.lastName);
+  const lastAt = asNumber(value.lastAt, 0, Number.MAX_SAFE_INTEGER);
+  if (lastText.length > 0) summary.lastText = lastText;
+  if (lastName) summary.lastName = lastName;
+  if (lastAt !== null) summary.lastAt = Math.round(lastAt);
+  return summary;
+}
+
+export function sanitizeChannelPost(value: unknown): ChannelMessage | null {
+  if (!isRecord(value)) return null;
+  const id = sanitizeFurnitureId(value.id);
+  const guestId = sanitizeGuestId(value.guestId);
+  const name = sanitizeName(value.name);
+  const text = sanitizeChannelMessage(value.text);
+  const at = asNumber(value.at, 0, Number.MAX_SAFE_INTEGER);
+  if (!id || !guestId || !name || !text || at === null) return null;
+  return { id, guestId, name, text, at: Math.round(at) };
+}
+
+function parseChannelList(value: unknown): ChannelSummary[] {
+  if (!Array.isArray(value)) return [];
+  const channels: ChannelSummary[] = [];
+  for (const item of value) {
+    const channel = sanitizeChannelSummary(item);
+    if (channel) channels.push(channel);
+  }
+  return channels;
+}
+
+function parseChannelHistory(value: unknown): ChannelMessage[] {
+  if (!Array.isArray(value)) return [];
+  const messages: ChannelMessage[] = [];
+  for (const item of value) {
+    const message = sanitizeChannelPost(item);
+    if (message) messages.push(message);
+  }
+  return messages;
+}
+
 export function sanitizeTvId(value: unknown): string | null {
   return typeof value === 'string' && TV_ID_RE.test(value) ? value : null;
 }
@@ -236,6 +355,45 @@ export function sanitizeTileIndex(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isInteger(value)) return null;
   if (value < 0 || value > TILE_MAX) return null;
   return value;
+}
+
+export function sanitizeNpcLine(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.replace(/\s+/g, ' ').trim().slice(0, NPC_LINE_MAX);
+}
+
+export function sanitizeNpcPlacement(value: unknown): NpcPlacement | null {
+  if (!isRecord(value)) return null;
+  const id = sanitizeFurnitureId(value.id);
+  const name = sanitizeName(value.name);
+  const line = sanitizeNpcLine(value.line);
+  const appearance = sanitizeAppearance(value.appearance);
+  const col = sanitizeTileIndex(value.col);
+  const row = sanitizeTileIndex(value.row);
+  const facing = asFacing(value.facing) ?? 'down';
+  if (!id || !name || line === null || !appearance || col === null || row === null) return null;
+  return { id, name, line, appearance, col, row, facing };
+}
+
+function parseNpcList(value: unknown): NpcPlacement[] {
+  if (!Array.isArray(value)) return [];
+  const npcs: NpcPlacement[] = [];
+  for (const item of value) {
+    const npc = sanitizeNpcPlacement(item);
+    if (npc) npcs.push(npc);
+  }
+  return npcs;
+}
+
+function parseNpcDraft(value: Record<string, unknown>): Omit<NpcPlacement, 'id'> | null {
+  const name = sanitizeName(value.name);
+  const line = sanitizeNpcLine(value.line);
+  const appearance = sanitizeAppearance(value.appearance);
+  const col = sanitizeTileIndex(value.col);
+  const row = sanitizeTileIndex(value.row);
+  const facing = asFacing(value.facing);
+  if (!name || line === null || !appearance || col === null || row === null || !facing) return null;
+  return { name, line, appearance, col, row, facing };
 }
 
 export function sanitizeFurniturePlacement(value: unknown): FurniturePlacement | null {
@@ -349,6 +507,44 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     return id ? { type: 'furniture_remove', id } : null;
   }
   if (parsed.type === 'furniture_reset') return { type: 'furniture_reset' };
+  if (parsed.type === 'npc_add') {
+    const draft = parseNpcDraft(parsed);
+    return draft ? { type: 'npc_add', ...draft } : null;
+  }
+  if (parsed.type === 'npc_update') {
+    const id = sanitizeFurnitureId(parsed.id);
+    const draft = parseNpcDraft(parsed);
+    if (!id || !draft) return null;
+    return { type: 'npc_update', id, ...draft };
+  }
+  if (parsed.type === 'npc_remove') {
+    const id = sanitizeFurnitureId(parsed.id);
+    return id ? { type: 'npc_remove', id } : null;
+  }
+  if (parsed.type === 'channel_add') {
+    const name = sanitizeChannelName(parsed.name);
+    return name ? { type: 'channel_add', name } : null;
+  }
+  if (parsed.type === 'channel_rename') {
+    const id = sanitizeFurnitureId(parsed.id);
+    const name = sanitizeChannelName(parsed.name);
+    if (!id || !name) return null;
+    return { type: 'channel_rename', id, name };
+  }
+  if (parsed.type === 'channel_remove') {
+    const id = sanitizeFurnitureId(parsed.id);
+    return id ? { type: 'channel_remove', id } : null;
+  }
+  if (parsed.type === 'channel_history') {
+    const channelId = sanitizeFurnitureId(parsed.channelId);
+    return channelId ? { type: 'channel_history', channelId } : null;
+  }
+  if (parsed.type === 'channel_chat') {
+    const channelId = sanitizeFurnitureId(parsed.channelId);
+    const text = sanitizeChannelMessage(parsed.text);
+    if (!channelId || !text) return null;
+    return { type: 'channel_chat', channelId, text };
+  }
   if (parsed.type === 'ping') return { type: 'ping' };
   return null;
 }
@@ -467,6 +663,8 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       peers,
       tvs,
       furniture: parseFurnitureList(parsed.furniture),
+      npcs: parseNpcList(parsed.npcs),
+      channels: parseChannelList(parsed.channels),
       games: Array.isArray(parsed.games)
         ? sanitizeGameSessionList(parsed.games)
         : sanitizeGameSessionList(parsed.game ? [parsed.game] : []),
@@ -507,6 +705,19 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       : null;
   }
   if (parsed.type === 'furniture') return { type: 'furniture', places: parseFurnitureList(parsed.places) };
+  if (parsed.type === 'npcs') return { type: 'npcs', npcs: parseNpcList(parsed.npcs) };
+  if (parsed.type === 'channels') return { type: 'channels', channels: parseChannelList(parsed.channels) };
+  if (parsed.type === 'channel_history') {
+    const channelId = sanitizeFurnitureId(parsed.channelId);
+    if (!channelId) return null;
+    return { type: 'channel_history', channelId, messages: parseChannelHistory(parsed.messages) };
+  }
+  if (parsed.type === 'channel_message') {
+    const channelId = sanitizeFurnitureId(parsed.channelId);
+    const message = sanitizeChannelPost(parsed.message);
+    if (!channelId || !message) return null;
+    return { type: 'channel_message', channelId, message };
+  }
   if (parsed.type === 'game') {
     if (Array.isArray(parsed.sessions)) return { type: 'game', sessions: sanitizeGameSessionList(parsed.sessions) };
     const one = sanitizeGameSessionView(parsed.session);

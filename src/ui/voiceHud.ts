@@ -29,9 +29,9 @@ export class VoiceHud {
     screen: boolean;
   }): void {
     const live = state.status === 'live';
-    const micOff = state.status !== 'live' || state.muted;
+    const micOff = state.muted;
     const micLabel =
-      state.status === 'connecting'
+      state.status === 'connecting' && !state.muted
         ? 'Conectando microfone…'
         : micOff
           ? 'Microfone mudo'
@@ -41,7 +41,7 @@ export class VoiceHud {
 
     setCallButton(this.mic, {
       off: micOff,
-      busy: state.status === 'connecting',
+      busy: state.status === 'connecting' && !state.muted,
       speaking: live && !state.muted && state.speaking,
       pressed: live && !state.muted,
       label: micLabel,

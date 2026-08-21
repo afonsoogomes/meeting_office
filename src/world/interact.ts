@@ -26,11 +26,12 @@ export type Seat = {
   use: UseKind;
 };
 
-const BEHIND: Record<FurnitureFacing, TilePos> = {
-  down: { col: 0, row: -1 },
-  up: { col: 0, row: 1 },
-  left: { col: 1, row: 0 },
-  right: { col: -1, row: 0 },
+/** Tile step from the cushion edge toward the room (not behind the backrest). */
+const FRONT: Record<FurnitureFacing, TilePos> = {
+  down: { col: 0, row: 1 },
+  up: { col: 0, row: -1 },
+  left: { col: -1, row: 0 },
+  right: { col: 1, row: 0 },
 };
 
 const OCCUPY_PX = 22;
@@ -97,10 +98,10 @@ export function isNearSeat(tile: TilePos, seat: Seat): boolean {
 }
 
 const SIT_OFFSET: Record<FurnitureFacing, { x: number; y: number; depthBias: number }> = {
-  down: { x: 0, y: -8, depthBias: 20 },
-  up: { x: 0, y: -8, depthBias: -18 },
-  left: { x: 6, y: -4, depthBias: 20 },
-  right: { x: -6, y: -4, depthBias: 20 },
+  down: { x: 0, y: -6, depthBias: 24 },
+  up: { x: 0, y: 8, depthBias: -18 },
+  left: { x: 8, y: -4, depthBias: 20 },
+  right: { x: -8, y: -4, depthBias: 20 },
 };
 
 export function sitAnchor(seat: Seat): { x: number; y: number; depthBias: number } {
@@ -223,14 +224,14 @@ function sleepApproachTile(place: FurniturePlace): TilePos {
 
 function approachTile(place: FurniturePlace, facing: FurnitureFacing, slot: TilePos): TilePos {
   const size = placedSize(place);
-  let front: TilePos;
-  if (facing === 'down') front = { col: slot.col, row: place.row };
-  else if (facing === 'up') front = { col: slot.col, row: place.row + size.h - 1 };
-  else if (facing === 'left') front = { col: place.col, row: slot.row };
-  else front = { col: place.col + size.w - 1, row: slot.row };
+  let edge: TilePos;
+  if (facing === 'down') edge = { col: slot.col, row: place.row + size.h - 1 };
+  else if (facing === 'up') edge = { col: slot.col, row: place.row };
+  else if (facing === 'left') edge = { col: place.col, row: slot.row };
+  else edge = { col: place.col + size.w - 1, row: slot.row };
 
-  const behind = BEHIND[facing];
-  return { col: front.col + behind.col, row: front.row + behind.row };
+  const step = FRONT[facing];
+  return { col: edge.col + step.col, row: edge.row + step.row };
 }
 
 function distanceToSlot(tile: TilePos, seat: Seat): number {

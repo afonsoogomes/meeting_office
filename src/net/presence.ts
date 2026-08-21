@@ -4,7 +4,10 @@ import {
   WS_HEARTBEAT_MS,
   type ClientMessage,
   type Facing,
+  type ChannelMessage,
+  type ChannelSummary,
   type FurniturePlacement,
+  type NpcPlacement,
   type Peer,
   type Pose,
   type TvPlatform,
@@ -19,7 +22,9 @@ export type PresenceHandlers = {
     peers: Peer[],
     tvs: TvScreen[],
     furniture: FurniturePlacement[],
+    npcs: NpcPlacement[],
     games: GameSessionView[],
+    channels: ChannelSummary[],
   ) => void;
   onJoin: (peer: Peer) => void;
   onLeave: (guestId: string) => void;
@@ -28,6 +33,10 @@ export type PresenceHandlers = {
   onChat: (guestId: string, name: string, text: string) => void;
   onTv: (tvId: string, platform: TvPlatform | null, videoId: string | null) => void;
   onFurniture: (places: FurniturePlacement[]) => void;
+  onNpcs: (npcs: NpcPlacement[]) => void;
+  onChannels: (channels: ChannelSummary[]) => void;
+  onChannelHistory: (channelId: string, messages: ChannelMessage[]) => void;
+  onChannelMessage: (channelId: string, message: ChannelMessage) => void;
   onGame: (sessions: GameSessionView[]) => void;
   onStatus: (status: PresenceStatus) => void;
 };
@@ -87,6 +96,38 @@ export class PresenceClient {
     this.send({ type: 'furniture_reset' });
   }
 
+  sendNpcAdd(npc: Omit<NpcPlacement, 'id'>): void {
+    this.send({ type: 'npc_add', ...npc });
+  }
+
+  sendNpcUpdate(npc: NpcPlacement): void {
+    this.send({ type: 'npc_update', ...npc });
+  }
+
+  sendNpcRemove(id: string): void {
+    this.send({ type: 'npc_remove', id });
+  }
+
+  sendChannelAdd(name: string): void {
+    this.send({ type: 'channel_add', name });
+  }
+
+  sendChannelRename(id: string, name: string): void {
+    this.send({ type: 'channel_rename', id, name });
+  }
+
+  sendChannelRemove(id: string): void {
+    this.send({ type: 'channel_remove', id });
+  }
+
+  sendChannelHistory(channelId: string): void {
+    this.send({ type: 'channel_history', channelId });
+  }
+
+  sendChannelChat(channelId: string, text: string): void {
+    this.send({ type: 'channel_chat', channelId, text });
+  }
+
   disconnect(): void {
     this.closed = true;
     window.clearTimeout(this.retryTimer);
@@ -114,7 +155,16 @@ export class PresenceClient {
       if (this.socket !== socket) return;
       const message = parseServerMessage(String(event.data));
       if (!message || message.type === 'pong') return;
-      if (message.type === 'welcome') this.handlers.onWelcome(message.peers, message.tvs, message.furniture, message.games);
+      if (message.type === 'welcome') {
+        this.handlers.onWelcome(
+          message.peers,
+          message.tvs,
+          message.furniture,
+          message.npcs,
+          message.games,
+          message.channels,
+        );
+      }
       else if (message.type === 'join') this.handlers.onJoin(message.peer);
       else if (message.type === 'leave') this.handlers.onLeave(message.guestId);
       else if (message.type === 'state') this.handlers.onState(message.guestId, message.pose);
@@ -122,6 +172,10 @@ export class PresenceClient {
       else if (message.type === 'chat') this.handlers.onChat(message.guestId, message.name, message.text);
       else if (message.type === 'tv') this.handlers.onTv(message.tvId, message.platform, message.videoId);
       else if (message.type === 'furniture') this.handlers.onFurniture(message.places);
+      else if (message.type === 'npcs') this.handlers.onNpcs(message.npcs);
+      else if (message.type === 'channels') this.handlers.onChannels(message.channels);
+      else if (message.type === 'channel_history') this.handlers.onChannelHistory(message.channelId, message.messages);
+      else if (message.type === 'channel_message') this.handlers.onChannelMessage(message.channelId, message.message);
       else if (message.type === 'game') this.handlers.onGame(message.sessions);
     });
 

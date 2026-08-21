@@ -66,6 +66,40 @@
           <button id="reset-furniture" type="button" class="ghost">Restaurar escritório</button>
         </aside>
 
+        <aside id="npc-panel" class="panel panel-left panel-avatar hidden" aria-label="Colegas">
+          <div class="panel-head">
+            <h2>Colegas</h2>
+            <button id="close-npcs" type="button" class="ghost">Fechar</button>
+          </div>
+          <p class="panel-note">Cadastre um NPC, coloque no chão e clique nele para editar. <kbd>X</kbd> remove. <kbd>R</kbd> gira.</p>
+          <div id="npc-list" class="npc-list"></div>
+          <p id="npc-empty" class="panel-note">Nenhum colega neste escritório.</p>
+          <button id="npc-new" type="button">Novo colega</button>
+          <div id="npc-form" class="npc-form hidden">
+            <button type="button" id="npc-preview-wrap" class="avatar-preview" aria-label="Pré-visualização. Clique para girar.">
+              <canvas id="npc-preview" width="96" height="160"></canvas>
+              <span>clique para girar</span>
+            </button>
+            <label class="field">
+              Nome
+              <input id="npc-name" type="text" maxlength="18" autocomplete="off" />
+            </label>
+            <label class="field">
+              Frase
+              <textarea id="npc-line" maxlength="80" rows="2" placeholder="O que ele diz quando você chega perto"></textarea>
+            </label>
+            <p class="customizer-label">Cores</p>
+            <div id="npc-color-controls" class="color-controls"></div>
+            <p class="customizer-label">Peças</p>
+            <div id="npc-layer-controls" class="layer-controls"></div>
+            <div class="tv-actions">
+              <button id="npc-random" type="button" class="ghost">Aleatório</button>
+              <button id="npc-place" type="button">Colocar no mapa</button>
+            </div>
+            <button id="npc-remove" type="button" class="ghost">Remover do escritório</button>
+          </div>
+        </aside>
+
         <aside id="arcade-panel" class="panel hidden" aria-label="Fliperama">
           <div class="panel-head">
             <h2>Fliperama</h2>
@@ -95,6 +129,42 @@
           <p class="panel-note">Só no seu fone. Abaixa quem está alto sem mudar o microfone da outra pessoa.</p>
           <div id="people-list" class="people-list"></div>
           <p id="people-empty" class="panel-note">Ninguém mais no escritório.</p>
+        </aside>
+
+        <aside id="channels-panel" class="panel panel-channels hidden" aria-label="Canais de texto">
+          <div class="panel-head">
+            <h2>Canais</h2>
+            <button id="close-channels" type="button" class="ghost">Fechar</button>
+          </div>
+          <p class="panel-note">O Enter no mapa continua o papo rápido. Aqui o assunto fica salvo no escritório.</p>
+          <div class="channels-body">
+            <div id="channel-list" class="channel-list"></div>
+            <p id="channel-empty" class="panel-note">Nenhum canal neste escritório.</p>
+            <form id="channel-create" class="channel-create" autocomplete="off">
+              <input id="channel-new-name" type="text" maxlength="32" placeholder="Nome do canal" autocomplete="off" />
+              <button type="submit">Criar</button>
+            </form>
+            <p id="channel-pick" class="panel-note">Escolha um canal ou crie um para o time.</p>
+            <div id="channel-thread" class="channel-thread hidden">
+              <div class="channel-thread-head">
+                <label class="field">
+                  Canal
+                  <input id="channel-title" type="text" maxlength="32" autocomplete="off" />
+                </label>
+                <button id="channel-remove" type="button" class="ghost">Apagar</button>
+              </div>
+              <div id="channel-log" aria-live="polite"></div>
+              <form id="channel-form" autocomplete="off">
+                <textarea
+                  id="channel-input"
+                  maxlength="280"
+                  rows="2"
+                  placeholder="Mensagem neste canal"
+                ></textarea>
+                <button type="submit">Enviar</button>
+              </form>
+            </div>
+          </div>
         </aside>
 
         <aside id="tv-panel" class="panel hidden" aria-label="TV">
@@ -412,6 +482,21 @@
         </div>
         <div class="dock-slot dock-slot-right">
           <button
+            id="channels-btn"
+            class="dock-help"
+            type="button"
+            aria-expanded="false"
+            aria-controls="channels-panel"
+            aria-label="Canais"
+            title="Canais"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 7.2h10.4" />
+              <path d="M5 12h14" />
+              <path d="M5 16.8h7.2" />
+            </svg>
+          </button>
+          <button
             id="people-btn"
             class="dock-help"
             type="button"
@@ -424,6 +509,22 @@
               <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
               <path d="M15.2 9.4a3.2 3.2 0 0 1 0 5.2" />
               <path d="M17.6 7.2a6 6 0 0 1 0 9.6" />
+            </svg>
+          </button>
+          <button
+            id="npcs-btn"
+            class="dock-help"
+            type="button"
+            aria-expanded="false"
+            aria-controls="npc-panel"
+            aria-label="Colegas"
+            title="Colegas"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="9" cy="8" r="2.4" />
+              <path d="M4.8 17.4c.4-2.6 2.3-4 4.2-4s3.8 1.4 4.2 4" />
+              <circle cx="15.6" cy="8.6" r="2.1" />
+              <path d="M13.2 17.4c.3-2 1.8-3.2 3.4-3.2 1.7 0 3.1 1.2 3.5 3.2" />
             </svg>
           </button>
           <button

@@ -151,6 +151,8 @@ export class BuilderPanel {
           ['G', 'acenar'],
           ['C', 'avatar'],
           ['F', 'móveis'],
+          ['N', 'colegas'],
+          ['T', 'canais'],
           ['Enter', 'falar'],
           ['M', 'mic'],
           ['V', 'câmera'],
