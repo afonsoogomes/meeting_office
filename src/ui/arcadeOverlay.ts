@@ -48,6 +48,7 @@ export class ArcadeOverlay {
         ? 'A assistir'
         : `Player ${config.playerNumber} · ${config.role === 'host' ? 'P1 (host Netplay)' : 'P2+'}`;
     this.root.classList.remove('hidden');
+    document.body.classList.add('arcade-open');
     this.frame.src = '/emulator/play.html';
   }
 
@@ -63,6 +64,7 @@ export class ArcadeOverlay {
   close(): void {
     this.config = null;
     this.root.classList.add('hidden');
+    document.body.classList.remove('arcade-open');
     this.frame.src = 'about:blank';
   }
 
