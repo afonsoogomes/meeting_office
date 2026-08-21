@@ -254,8 +254,6 @@ export class OfficeScene extends Phaser.Scene {
     this.joystick = new WalkJoystick(() => {
       void this.voice.unlock();
     });
-    this.voice = new VoiceClient(() => this.refreshVoiceHud());
-    this.voice.prepare(this.localGuestId, avatar.name, currentOfficeSlug());
     this.shareInvites = new ShareInvites({
       onWatch: (guestId) => {
         void this.voice.unlock();
@@ -263,6 +261,8 @@ export class OfficeScene extends Phaser.Scene {
         this.mediaStage.expandScreenOf(guestId);
       },
     });
+    this.voice = new VoiceClient(() => this.refreshVoiceHud());
+    this.voice.prepare(this.localGuestId, avatar.name, currentOfficeSlug());
     this.mediaStage = new MediaStage({
       onExpand: () => this.tvScreens?.collapse(),
       onStopWatch: (guestId) => this.voice.unwatchScreen(guestId),
@@ -1777,7 +1777,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private syncShareInvites(): void {
-    this.shareInvites.sync(
+    this.shareInvites?.sync(
       this.voice.listRemoteScreenShares().map((guestId) => ({
         guestId,
         name: this.remoteName(guestId),
