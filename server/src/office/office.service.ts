@@ -1,14 +1,22 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import {
-  DEFAULT_OFFICE_SLUG,
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
+import {
+  parseOfficeName,
   parseOfficeSlug,
   parseOfficeSpec,
   specFromHouse,
   type OfficeSnapshot,
   type OfficeSpec,
+  type OfficeSummary,
 } from '../../../shared/office';
 import { DEFAULT_OFFICE_FURNITURE, DEFAULT_OFFICE_NAME, DEFAULT_OFFICE_SPEC } from '../../../shared/office-default';
-import { MAX_FURNITURE, type FurniturePlacement } from '../../../shared/protocol';
+import { DEFAULT_OFFICE_SLUG, MAX_FURNITURE, type FurniturePlacement } from '../../../shared/protocol';
 import { isCatalogItem } from './catalog';
 import { OfficeRepository, type OfficeRow } from './office.repository';
 
@@ -21,6 +29,10 @@ export class OfficeService implements OnModuleInit {
     if (process.env.OFFICE_RESEED === '1') this.resetFurniture(DEFAULT_OFFICE_SLUG);
   }
 
+  list(): OfficeSummary[] {
+    return this.offices.listSummaries();
+  }
+
   snapshot(slug: string): OfficeSnapshot | null {
     const office = this.requireOffice(slug);
     if (!office) return null;
@@ -30,6 +42,38 @@ export class OfficeService implements OnModuleInit {
       spec: office.spec,
       furniture: this.offices.furnitureOf(office.id).filter((place) => isCatalogItem(place.item)),
     };
+  }
+
+  create(input: { name: unknown; slug: unknown }): OfficeSnapshot {
+    const name = parseOfficeName(input.name);
+    const slug = parseOfficeSlug(input.slug);
+    if (!name || !slug) {
+      throw new BadRequestException({ error: 'INVALID_OFFICE', message: 'Nome ou slug inválido.' });
+    }
+    if (this.offices.findBySlug(slug)) {
+      throw new ConflictException({ error: 'SLUG_TAKEN', message: 'Esse slug já está em uso.' });
+    }
+    const spec = parseOfficeSpec(specFromHouse(DEFAULT_OFFICE_SPEC));
+    if (!spec) throw new Error('invalid default office seed');
+    const office = this.offices.createOffice(slug, name, spec, 'blank');
+    return { slug: office.slug, name: office.name, spec: office.spec, furniture: [] };
+  }
+
+  rename(currentSlug: string, input: { name?: unknown; slug?: unknown }): OfficeSnapshot {
+    const office = this.requireOffice(currentSlug);
+    if (!office) throw new NotFoundException();
+    const name = input.name === undefined ? office.name : parseOfficeName(input.name);
+    const slug = input.slug === undefined ? office.slug : parseOfficeSlug(input.slug);
+    if (!name || !slug) {
+      throw new BadRequestException({ error: 'INVALID_OFFICE', message: 'Nome ou slug inválido.' });
+    }
+    if (slug !== office.slug && this.offices.findBySlug(slug)) {
+      throw new ConflictException({ error: 'SLUG_TAKEN', message: 'Esse slug já está em uso.' });
+    }
+    this.offices.renameOffice(office.id, slug, name);
+    const next = this.snapshot(slug);
+    if (!next) throw new NotFoundException();
+    return next;
   }
 
   listFurniture(slug: string): FurniturePlacement[] | null {
@@ -75,14 +119,19 @@ export class OfficeService implements OnModuleInit {
   resetFurniture(slug: string): FurniturePlacement[] | null {
     const office = this.requireOffice(slug);
     if (!office) return null;
-    return this.offices.replaceAllFurniture(office.id, DEFAULT_OFFICE_FURNITURE);
+    const seed = office.template === 'default' ? DEFAULT_OFFICE_FURNITURE : [];
+    return this.offices.replaceAllFurniture(office.id, seed);
+  }
+
+  exists(slug: string): boolean {
+    return this.requireOffice(slug) !== null;
   }
 
   private ensureDefault(): void {
-    if (this.offices.findBySlug(DEFAULT_OFFICE_SLUG)) return;
+    if (this.offices.count() > 0) return;
     const spec = parseOfficeSpec(specFromHouse(DEFAULT_OFFICE_SPEC));
     if (!spec) throw new Error('invalid default office seed');
-    const office = this.offices.createOffice(DEFAULT_OFFICE_SLUG, DEFAULT_OFFICE_NAME, spec);
+    const office = this.offices.createOffice(DEFAULT_OFFICE_SLUG, DEFAULT_OFFICE_NAME, spec, 'default');
     this.offices.replaceAllFurniture(office.id, DEFAULT_OFFICE_FURNITURE);
   }
 

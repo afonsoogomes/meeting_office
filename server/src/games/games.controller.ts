@@ -15,7 +15,8 @@ import {
   Query,
   StreamableFile,
 } from '@nestjs/common';
-import { DEFAULT_OFFICE_SLUG } from '../../../shared/office';
+import { parseOfficeSlug } from '../../../shared/office';
+import { DEFAULT_OFFICE_SLUG } from '../../../shared/protocol';
 import type { EmulatorSessionConfig, GameCatalogItem, GameSessionView } from '../../../shared/game-session';
 import { CreateGameSessionDto, GuestIdDto, JoinGameSessionDto, NetplayRoomDto } from './games.dto';
 import { GamesService, type GameResult } from './games.service';
@@ -30,13 +31,15 @@ export class GamesController {
   }
 
   @Get('sessions')
-  list(): { sessions: GameSessionView[] } {
-    return { sessions: this.games.list(DEFAULT_OFFICE_SLUG) };
+  list(@Query('office') office?: string): { sessions: GameSessionView[] } {
+    const slug = parseOfficeSlug(office) ?? DEFAULT_OFFICE_SLUG;
+    return { sessions: this.games.list(slug) };
   }
 
   @Get('sessions/current')
-  current(): { session: GameSessionView | null; sessions: GameSessionView[] } {
-    const sessions = this.games.list(DEFAULT_OFFICE_SLUG);
+  current(@Query('office') office?: string): { session: GameSessionView | null; sessions: GameSessionView[] } {
+    const slug = parseOfficeSlug(office) ?? DEFAULT_OFFICE_SLUG;
+    const sessions = this.games.list(slug);
     return { session: sessions[0] ?? null, sessions };
   }
 

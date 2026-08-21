@@ -16,8 +16,10 @@
     <div id="app">
       <div id="game">
         <div id="tv-screens" aria-hidden="true"></div>
+        <div id="tv-chrome" aria-hidden="true"></div>
         <div id="media-stage" aria-hidden="true"></div>
         <button id="voice-resume" class="voice-resume hidden" type="button">Toque para voltar a ouvir</button>
+        <div id="share-invites" class="share-invites hidden" aria-live="polite"></div>
         <div id="chat-log" aria-live="polite"></div>
         <form id="chat-form" autocomplete="off">
           <input
@@ -28,6 +30,29 @@
             placeholder="Enter para falar"
           />
         </form>
+
+        <aside id="offices-panel" class="panel panel-left hidden" aria-label="Escritórios">
+          <div class="panel-head">
+            <h2>Escritórios</h2>
+            <button id="close-offices" type="button" class="ghost">Fechar</button>
+          </div>
+          <p class="panel-note">Cada slug é um endereço. Quem abre o link entra nesse mapa.</p>
+          <div id="offices-list" class="offices-list"></div>
+          <button id="office-new" type="button">Novo escritório</button>
+          <form id="office-rename-form" autocomplete="off">
+            <p class="customizer-label">Este escritório</p>
+            <label class="field">
+              Nome
+              <input id="office-rename-name" type="text" maxlength="48" autocomplete="off" />
+            </label>
+            <label class="field">
+              Slug
+              <input id="office-rename-slug" type="text" maxlength="32" autocomplete="off" />
+            </label>
+            <p id="office-rename-error" class="tv-error hidden" role="alert"></p>
+            <button type="submit">Salvar endereço</button>
+          </form>
+        </aside>
 
         <aside id="builder" class="panel panel-left hidden" aria-label="Colocar móveis">
           <div class="panel-head">
@@ -62,17 +87,27 @@
           </div>
         </aside>
 
+        <aside id="people-panel" class="panel hidden" aria-label="Volume das pessoas">
+          <div class="panel-head">
+            <h2>Volume</h2>
+            <button id="close-people" type="button" class="ghost">Fechar</button>
+          </div>
+          <p class="panel-note">Só no seu fone. Abaixa quem está alto sem mudar o microfone da outra pessoa.</p>
+          <div id="people-list" class="people-list"></div>
+          <p id="people-empty" class="panel-note">Ninguém mais no escritório.</p>
+        </aside>
+
         <aside id="tv-panel" class="panel hidden" aria-label="TV">
           <div class="panel-head">
             <h2>TV</h2>
             <button id="close-tv" type="button" class="ghost">Fechar</button>
           </div>
-          <p class="panel-note">Cola o link do vídeo. Todo mundo no escritório vê a mesma tela.</p>
+          <p class="panel-note">Cola o link do vídeo ou da playlist. Todo mundo no escritório vê a mesma tela.</p>
           <div id="tv-platforms" class="catalog-groups"></div>
           <form id="tv-form" autocomplete="off">
             <label class="field">
               Link
-              <input id="tv-url" type="text" autocomplete="off" placeholder="https://youtu.be/…" />
+              <input id="tv-url" type="text" autocomplete="off" placeholder="https://youtu.be/… ou playlist" />
             </label>
             <p id="tv-error" class="tv-error hidden" role="alert"></p>
             <div class="tv-actions">
@@ -115,7 +150,56 @@
               <strong id="arcade-overlay-title">Fliperama</strong>
               <p id="arcade-overlay-slot">Player</p>
             </div>
-            <button id="arcade-overlay-leave" type="button">Voltar ao escritório</button>
+            <button id="arcade-overlay-leave" class="overlay-leave" type="button">Voltar ao escritório</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="screen-overlay" class="arcade-overlay hidden" aria-label="Tela compartilhada">
+        <div class="arcade-stage">
+          <div id="screen-stage-video" class="screen-stage-video"></div>
+          <div class="arcade-overlay-bar">
+            <div>
+              <strong id="screen-overlay-title">Tela</strong>
+              <p id="screen-overlay-copy"></p>
+            </div>
+            <div class="overlay-bar-tools">
+              <div id="screen-overlay-audio" class="media-mixer media-mixer-on-video hidden" data-mixer-label="Tela">
+                <button
+                  type="button"
+                  class="media-mixer-mute"
+                  data-mixer="mute"
+                  aria-label="Som da tela"
+                  title="Som da tela"
+                >
+                  <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+                    <path d="M15.2 9.4a3.2 3.2 0 0 1 0 5.2" />
+                    <path d="M17.6 7.2a6 6 0 0 1 0 9.6" />
+                  </svg>
+                  <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+                    <path d="M15.2 9.4l5.8 5.8" />
+                    <path d="M21 9.4l-5.8 5.8" />
+                  </svg>
+                </button>
+                <div class="media-mixer-copy">
+                  <span class="media-mixer-name">Tela</span>
+                  <span class="media-mixer-level" data-mixer="level">80%</span>
+                </div>
+                <input
+                  class="media-mixer-slider"
+                  data-mixer="slider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="80"
+                  aria-label="Volume da tela"
+                />
+              </div>
+              <button id="screen-overlay-leave" class="overlay-leave" type="button">Voltar ao escritório</button>
+            </div>
           </div>
         </div>
       </div>
@@ -141,20 +225,112 @@
         </form>
       </div>
 
+      <div id="office-create" class="gate hidden" role="dialog" aria-labelledby="office-create-title">
+        <form id="office-create-form" class="gate-card">
+          <p class="gate-kicker">Meeting Office</p>
+          <h1 id="office-create-title">Novo escritório</h1>
+          <p id="office-create-copy" class="gate-copy">
+            O slug vira o endereço. Todo mundo que abrir esse link entra aqui.
+          </p>
+          <label class="field">
+            Nome
+            <input id="office-create-name" type="text" maxlength="48" minlength="2" autocomplete="off" required />
+          </label>
+          <label class="field">
+            Slug
+            <input
+              id="office-create-slug"
+              type="text"
+              maxlength="32"
+              autocomplete="off"
+              required
+              pattern="[a-z0-9][a-z0-9-]{0,31}"
+              placeholder="meu-time"
+            />
+          </label>
+          <p id="office-create-error" class="tv-error hidden" role="alert"></p>
+          <div class="tv-actions">
+            <button type="submit">Criar escritório</button>
+            <button id="office-create-cancel" type="button" class="ghost">Cancelar</button>
+          </div>
+        </form>
+      </div>
+
       <footer class="dock">
         <div class="dock-slot dock-slot-left">
-          <div id="tv-audio" class="tv-audio hidden">
-            <button id="tv-audio-mute" class="pill pill-muted" type="button">TV mudo</button>
-            <input
-              id="tv-audio-volume"
-              class="tv-audio-slider"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value="80"
-              aria-label="Volume da TV"
-            />
+          <div class="dock-mixers">
+            <div id="tv-audio" class="media-mixer hidden" data-mixer-label="TV">
+              <button
+                id="tv-audio-mute"
+                class="media-mixer-mute"
+                type="button"
+                data-mixer="mute"
+                aria-label="Som da TV"
+                title="Som da TV"
+              >
+                <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+                  <path d="M15.2 9.4a3.2 3.2 0 0 1 0 5.2" />
+                  <path d="M17.6 7.2a6 6 0 0 1 0 9.6" />
+                </svg>
+                <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+                  <path d="M15.2 9.4l5.8 5.8" />
+                  <path d="M21 9.4l-5.8 5.8" />
+                </svg>
+              </button>
+              <div class="media-mixer-copy">
+                <span class="media-mixer-name">TV</span>
+                <span id="tv-audio-level" class="media-mixer-level" data-mixer="level">Mudo</span>
+              </div>
+              <input
+                id="tv-audio-volume"
+                class="media-mixer-slider"
+                data-mixer="slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="80"
+                aria-label="Volume da TV"
+              />
+            </div>
+            <div id="screen-audio" class="media-mixer hidden" data-mixer-label="Tela">
+              <button
+                id="screen-audio-mute"
+                class="media-mixer-mute"
+                type="button"
+                data-mixer="mute"
+                aria-label="Som da tela"
+                title="Som da tela"
+              >
+                <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+                  <path d="M15.2 9.4a3.2 3.2 0 0 1 0 5.2" />
+                  <path d="M17.6 7.2a6 6 0 0 1 0 9.6" />
+                </svg>
+                <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+                  <path d="M15.2 9.4l5.8 5.8" />
+                  <path d="M21 9.4l-5.8 5.8" />
+                </svg>
+              </button>
+              <div class="media-mixer-copy">
+                <span class="media-mixer-name">Tela</span>
+                <span id="screen-audio-level" class="media-mixer-level" data-mixer="level">80%</span>
+              </div>
+              <input
+                id="screen-audio-volume"
+                class="media-mixer-slider"
+                data-mixer="slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="80"
+                aria-label="Volume da tela"
+              />
+            </div>
           </div>
         </div>
         <div class="call-controls" role="toolbar" aria-label="Controles de chamada">
@@ -235,6 +411,35 @@
           </button>
         </div>
         <div class="dock-slot dock-slot-right">
+          <button
+            id="people-btn"
+            class="dock-help"
+            type="button"
+            aria-expanded="false"
+            aria-controls="people-panel"
+            aria-label="Volume das pessoas"
+            title="Volume das pessoas"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.5 9.2v5.6h3.2L12 19V5L7.7 9.2H4.5Z" />
+              <path d="M15.2 9.4a3.2 3.2 0 0 1 0 5.2" />
+              <path d="M17.6 7.2a6 6 0 0 1 0 9.6" />
+            </svg>
+          </button>
+          <button
+            id="offices-btn"
+            class="dock-help"
+            type="button"
+            aria-expanded="false"
+            aria-controls="offices-panel"
+            aria-label="Escritórios"
+            title="Escritórios"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.8 20V8.2L12 4l7.2 4.2V20" />
+              <path d="M9.2 20v-6.4h5.6V20" />
+            </svg>
+          </button>
           <button
             id="help-btn"
             class="dock-help"

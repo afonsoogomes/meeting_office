@@ -19,9 +19,10 @@ export async function fetchGameCatalog(): Promise<GameCatalogItem[]> {
   return Array.isArray(data) ? data : [];
 }
 
-export async function fetchGameSessions(): Promise<GameSessionView[]> {
+export async function fetchGameSessions(officeSlug?: string): Promise<GameSessionView[]> {
+  const query = officeSlug ? `?office=${encodeURIComponent(officeSlug)}` : '';
   const data = await gamesRequest<{ sessions?: GameSessionView[]; session?: GameSessionView | null }>(
-    '/games/sessions',
+    `/games/sessions${query}`,
   );
   if (Array.isArray(data.sessions)) return data.sessions;
   return data.session ? [data.session] : [];
@@ -36,10 +37,11 @@ export async function createGameSession(
   guestId: string,
   name: string,
   gameId: string,
+  officeSlug?: string,
 ): Promise<GameSessionView> {
   return gamesRequest('/games/sessions', {
     method: 'POST',
-    body: JSON.stringify({ guestId, name, gameId }),
+    body: JSON.stringify({ guestId, name, gameId, officeSlug }),
   });
 }
 

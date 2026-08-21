@@ -449,7 +449,7 @@ export class GamesService {
   private persist(session: StoredSession): GameResult<GameSessionView> {
     this.store.save(session);
     const view = this.toView(session)!;
-    this.presence?.broadcastAll({ type: 'game', sessions: this.list(session.officeSlug) });
+    this.presence?.broadcastOffice(session.officeSlug, { type: 'game', sessions: this.list(session.officeSlug) });
     return ok(view);
   }
 

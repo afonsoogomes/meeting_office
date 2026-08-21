@@ -1,6 +1,31 @@
-import { sanitizeFurniturePlacement, type FurniturePlacement } from './protocol';
+import {
+  DEFAULT_OFFICE_SLUG,
+  OFFICE_SLUG_RE,
+  sanitizeFurniturePlacement,
+  sanitizeOfficeSlug,
+  type FurniturePlacement,
+} from './protocol';
 
-export const DEFAULT_OFFICE_SLUG = 'default';
+export { DEFAULT_OFFICE_SLUG, OFFICE_SLUG_RE, sanitizeOfficeSlug };
+
+export const RESERVED_OFFICE_SLUGS = new Set([
+  'new',
+  'offices',
+  'games',
+  'voice',
+  'health',
+  'ws',
+  'assets',
+  'src',
+  'emulator',
+]);
+
+export type OfficeTemplate = 'default' | 'blank';
+
+export type OfficeSummary = {
+  slug: string;
+  name: string;
+};
 
 export type OfficeRect = { x: number; y: number; w: number; h: number };
 
@@ -42,8 +67,8 @@ export type OfficeSnapshot = {
   furniture: FurniturePlacement[];
 };
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const TILE_KEY_RE = /^[a-z][a-z0-9-]{0,47}$/;
+const OFFICE_NAME_MAX = 48;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -141,7 +166,29 @@ export function parseOfficeSpec(value: unknown): OfficeSpec | null {
 }
 
 export function parseOfficeSlug(value: unknown): string | null {
-  return typeof value === 'string' && SLUG_RE.test(value) ? value : null;
+  const slug = sanitizeOfficeSlug(value);
+  if (!slug || RESERVED_OFFICE_SLUGS.has(slug)) return null;
+  return slug;
+}
+
+export function parseOfficeName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.replace(/\s+/g, ' ').trim().slice(0, OFFICE_NAME_MAX);
+  return name.length >= 2 ? name : null;
+}
+
+export function slugFromName(name: string): string {
+  const base = name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+  const candidate = base.length > 0 ? base : 'escritorio';
+  if (parseOfficeSlug(candidate)) return candidate;
+  const prefixed = `o-${candidate}`.replace(/-+$/g, '').slice(0, 32);
+  return parseOfficeSlug(prefixed) ?? 'escritorio';
 }
 
 export function parseOfficeSnapshot(value: unknown): OfficeSnapshot | null {

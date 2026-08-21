@@ -9,6 +9,8 @@ import {
 import { buildHouse, type BuiltHouse, type HouseSpec } from './house';
 import { OFFICE_HOUSE } from './houses/office';
 import type { OfficeSnapshot, OfficeSpec } from '../../shared/office';
+import { DEFAULT_OFFICE_NAME } from '../../shared/office-default';
+import { DEFAULT_OFFICE_SLUG } from '../../shared/protocol';
 
 export { TILE_SIZE, Tile, SOLID_TILES, isWalkable } from './constants';
 export type { TileId } from './constants';
@@ -139,6 +141,8 @@ let activeHouse: HouseSpec = OFFICE_HOUSE;
 let cached: BuiltHouse | null = null;
 let furnitureSync: FurnitureSync = 'local';
 let bootFurniture: FurniturePlace[] | null = null;
+let liveOfficeSlug = DEFAULT_OFFICE_SLUG;
+let liveOfficeName = DEFAULT_OFFICE_NAME;
 
 export function getBuiltHouse(): BuiltHouse {
   if (!cached || cached.spec !== activeHouse) cached = buildHouse(activeHouse);
@@ -178,6 +182,21 @@ export function applyOfficeSnapshot(snapshot: OfficeSnapshot): void {
   applyHouseSpec(snapshot.spec);
   furnitureSync = 'remote';
   bootFurniture = clonePlaces(snapshot.furniture);
+  liveOfficeSlug = snapshot.slug;
+  liveOfficeName = snapshot.name;
+}
+
+export function currentOfficeSlug(): string {
+  return liveOfficeSlug;
+}
+
+export function currentOfficeName(): string {
+  return liveOfficeName;
+}
+
+export function setCurrentOfficeMeta(slug: string, name: string): void {
+  liveOfficeSlug = slug;
+  liveOfficeName = name;
 }
 
 export function useLocalOffice(): void {

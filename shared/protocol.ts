@@ -9,6 +9,7 @@ import {
 
 export const ACTIONS = ['idle', 'walk', 'run', 'wave', 'talk', 'sit', 'sleep'] as const;
 export const FACINGS = ['down', 'right', 'up', 'left'] as const;
+export const DEFAULT_OFFICE_SLUG = 'default';
 
 export type Action = (typeof ACTIONS)[number];
 export type Facing = (typeof FACINGS)[number];
@@ -51,7 +52,7 @@ export type FurniturePlacement = {
 };
 
 export type ClientMessage =
-  | { type: 'join'; guestId: string; name: string; appearance: Appearance; pose: Pose }
+  | { type: 'join'; guestId: string; name: string; appearance: Appearance; pose: Pose; office: string }
   | { type: 'state'; pose: Pose }
   | { type: 'meta'; name: string; appearance: Appearance }
   | { type: 'chat'; text: string }
@@ -85,12 +86,16 @@ export type TvPlatform = 'youtube';
 export type TvScreen = {
   tvId: string;
   platform: TvPlatform;
+  /** Video id, playlist id, or `video+playlist[+index]`. */
   videoId: string;
 };
 
 const GUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TV_ID_RE = /^[a-z][a-z0-9-]{0,47}:[0-9]{1,3}:[0-9]{1,3}$/i;
-const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
+export const YOUTUBE_VIDEO_RE = /^[a-zA-Z0-9_-]{11}$/;
+export const YOUTUBE_PLAYLIST_RE = /^(PL|UU|FL|LL|OL)[a-zA-Z0-9_-]{10,64}$/;
+export const OFFICE_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const YOUTUBE_REF_MAX = 96;
 const ITEM_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const MAP_PAD = 8000;
 const TILE_MAX = 96;
@@ -176,8 +181,47 @@ export function sanitizeTvId(value: unknown): string | null {
   return typeof value === 'string' && TV_ID_RE.test(value) ? value : null;
 }
 
+export function sanitizeOfficeSlug(value: unknown): string | null {
+  return typeof value === 'string' && OFFICE_SLUG_RE.test(value) ? value : null;
+}
+
+export type YouTubeRef = {
+  videoId: string | null;
+  playlistId: string | null;
+  index: number | null;
+};
+
+export function decodeYouTubeRef(value: string): YouTubeRef | null {
+  if (value.length === 0 || value.length > YOUTUBE_REF_MAX) return null;
+  if (YOUTUBE_VIDEO_RE.test(value)) return { videoId: value, playlistId: null, index: null };
+  if (YOUTUBE_PLAYLIST_RE.test(value)) return { videoId: null, playlistId: value, index: null };
+
+  const parts = value.split('+');
+  if (parts.length < 2 || parts.length > 3) return null;
+  const videoId = YOUTUBE_VIDEO_RE.test(parts[0]) ? parts[0] : null;
+  const playlistId = YOUTUBE_PLAYLIST_RE.test(parts[1]) ? parts[1] : null;
+  if (!videoId || !playlistId) return null;
+  if (parts.length === 2) return { videoId, playlistId, index: null };
+  if (!/^\d{1,3}$/.test(parts[2])) return null;
+  return { videoId, playlistId, index: Number(parts[2]) };
+}
+
+export function encodeYouTubeRef(media: YouTubeRef | null | undefined): string | null {
+  if (!media) return null;
+  const videoId = media.videoId && YOUTUBE_VIDEO_RE.test(media.videoId) ? media.videoId : null;
+  const playlistId = media.playlistId && YOUTUBE_PLAYLIST_RE.test(media.playlistId) ? media.playlistId : null;
+  const index =
+    typeof media.index === 'number' && Number.isInteger(media.index) && media.index >= 0 && media.index <= 999
+      ? media.index
+      : null;
+  if (playlistId && videoId) return index !== null ? `${videoId}+${playlistId}+${index}` : `${videoId}+${playlistId}`;
+  if (playlistId) return playlistId;
+  if (videoId) return videoId;
+  return null;
+}
+
 export function sanitizeYouTubeId(value: unknown): string | null {
-  return typeof value === 'string' && YOUTUBE_ID_RE.test(value) ? value : null;
+  return typeof value === 'string' ? encodeYouTubeRef(decodeYouTubeRef(value)) : null;
 }
 
 export function sanitizeFurnitureId(value: unknown): string | null {
@@ -259,8 +303,9 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     const name = sanitizeName(parsed.name);
     const appearance = sanitizeAppearance(parsed.appearance);
     const pose = sanitizePose(parsed.pose);
+    const office = sanitizeOfficeSlug(parsed.office) ?? DEFAULT_OFFICE_SLUG;
     if (!guestId || !name || !appearance || !pose) return null;
-    return { type: 'join', guestId, name, appearance, pose };
+    return { type: 'join', guestId, name, appearance, pose, office };
   }
   if (parsed.type === 'state') {
     const pose = sanitizePose(parsed.pose);

@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { OfficeSpec } from '../../../shared/office';
+import type { OfficeSpec, OfficeSummary, OfficeTemplate } from '../../../shared/office';
 import type { FurniturePlacement } from '../../../shared/protocol';
 import type { SeedFurniture } from '../../../shared/office-default';
 
@@ -12,13 +12,17 @@ export type OfficeRow = {
   slug: string;
   name: string;
   spec: OfficeSpec;
+  template: OfficeTemplate;
 };
 
 @Injectable()
 export class OfficeRepository {
   private readonly db: Database.Database;
   private readonly selectOffice: Database.Statement;
+  private readonly selectOffices: Database.Statement;
   private readonly insertOffice: Database.Statement;
+  private readonly updateOffice: Database.Statement;
+  private readonly countOffices: Database.Statement;
   private readonly listFurniture: Database.Statement;
   private readonly insertFurniture: Database.Statement;
   private readonly getFurniture: Database.Statement;
@@ -55,9 +59,17 @@ export class OfficeRepository {
       );
       CREATE INDEX IF NOT EXISTS idx_furniture_office ON furniture(office_id);
     `);
+    this.ensureTemplateColumn();
 
-    this.selectOffice = this.db.prepare('SELECT id, slug, name, spec FROM offices WHERE slug = ?');
-    this.insertOffice = this.db.prepare('INSERT INTO offices (id, slug, name, spec) VALUES (?, ?, ?, ?)');
+    this.selectOffice = this.db.prepare('SELECT id, slug, name, spec, template FROM offices WHERE slug = ?');
+    this.selectOffices = this.db.prepare('SELECT slug, name FROM offices ORDER BY name COLLATE NOCASE, slug');
+    this.insertOffice = this.db.prepare(
+      'INSERT INTO offices (id, slug, name, spec, template) VALUES (?, ?, ?, ?, ?)',
+    );
+    this.updateOffice = this.db.prepare(
+      `UPDATE offices SET slug = ?, name = ?, updated_at = datetime('now') WHERE id = ?`,
+    );
+    this.countOffices = this.db.prepare('SELECT COUNT(*) AS n FROM offices');
     this.listFurniture = this.db.prepare(
       'SELECT id, item, col, row, facing FROM furniture WHERE office_id = ? ORDER BY sort, id',
     );
@@ -76,22 +88,42 @@ export class OfficeRepository {
     this.maxSort = this.db.prepare('SELECT COALESCE(MAX(sort), -1) AS n FROM furniture WHERE office_id = ?');
   }
 
+  count(): number {
+    const row = this.countOffices.get() as { n: number };
+    return row.n;
+  }
+
+  listSummaries(): OfficeSummary[] {
+    return this.selectOffices.all() as OfficeSummary[];
+  }
+
   findBySlug(slug: string): OfficeRow | null {
     const row = this.selectOffice.get(slug) as
-      | { id: string; slug: string; name: string; spec: string }
+      | { id: string; slug: string; name: string; spec: string; template: string }
       | undefined;
     if (!row) return null;
     try {
-      return { id: row.id, slug: row.slug, name: row.name, spec: JSON.parse(row.spec) as OfficeSpec };
+      return {
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        spec: JSON.parse(row.spec) as OfficeSpec,
+        template: row.template === 'default' ? 'default' : 'blank',
+      };
     } catch {
       return null;
     }
   }
 
-  createOffice(slug: string, name: string, spec: OfficeSpec): OfficeRow {
+  createOffice(slug: string, name: string, spec: OfficeSpec, template: OfficeTemplate = 'blank'): OfficeRow {
     const id = randomUUID();
-    this.insertOffice.run(id, slug, name, JSON.stringify(spec));
-    return { id, slug, name, spec };
+    this.insertOffice.run(id, slug, name, JSON.stringify(spec), template);
+    return { id, slug, name, spec, template };
+  }
+
+  renameOffice(id: string, slug: string, name: string): boolean {
+    const result = this.updateOffice.run(slug, name, id);
+    return result.changes > 0;
   }
 
   furnitureOf(officeId: string): FurniturePlacement[] {
@@ -170,6 +202,14 @@ export class OfficeRepository {
       return next;
     });
     return apply();
+  }
+
+  private ensureTemplateColumn(): void {
+    const columns = this.db.pragma('table_info(offices)') as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'template')) {
+      this.db.exec(`ALTER TABLE offices ADD COLUMN template TEXT NOT NULL DEFAULT 'blank'`);
+    }
+    this.db.exec(`UPDATE offices SET template = 'default' WHERE slug = 'default' AND template = 'blank'`);
   }
 }
 

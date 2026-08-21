@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import type { Server } from 'node:http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import { DEFAULT_OFFICE_SLUG } from '../../../shared/office';
 import { parseClientMessage, type ClientMessage, type FurniturePlacement, WS_HEARTBEAT_MS } from '../../../shared/protocol';
 import { GamesService } from '../games/games.service';
 import { OfficeService } from '../office/office.service';
@@ -53,10 +52,10 @@ export class PresenceSocket {
       this.lastChatAt.delete(socket);
       this.lastTvAt.delete(socket);
       this.lastFurnitureAt.delete(socket);
-      const guestId = this.presence.leave(socket);
-      if (guestId) {
-        this.games?.presenceLost(guestId);
-        this.presence.broadcast(guestId, { type: 'leave', guestId });
+      const guest = this.presence.leave(socket);
+      if (guest) {
+        this.games?.presenceLost(guest.guestId);
+        this.presence.broadcastOffice(guest.officeSlug, { type: 'leave', guestId: guest.guestId }, guest.guestId);
       }
     });
   }
@@ -71,23 +70,27 @@ export class PresenceSocket {
     }
 
     if (message.type === 'join') {
+      if (!this.offices.exists(message.office)) {
+        socket.close(4004, 'unknown office');
+        return;
+      }
       const peer = {
         guestId: message.guestId,
         name: message.name,
         appearance: message.appearance,
         pose: message.pose,
       };
-      if (this.presence.join(socket, peer) === 'full') {
+      if (this.presence.join(socket, peer, message.office) === 'full') {
         socket.close(4000, 'office full');
         return;
       }
       this.games?.presenceRestored(peer.guestId);
       this.presence.send(socket, {
         type: 'welcome',
-        peers: this.presence.peersExcept(peer.guestId),
-        tvs: this.presence.listTvs(),
-        furniture: this.offices.listFurniture(DEFAULT_OFFICE_SLUG) ?? [],
-        games: this.games?.viewOfOffice(DEFAULT_OFFICE_SLUG) ?? [],
+        peers: this.presence.peersExcept(message.office, peer.guestId),
+        tvs: this.presence.listTvs(message.office),
+        furniture: this.offices.listFurniture(message.office) ?? [],
+        games: this.games?.viewOfOffice(message.office) ?? [],
       });
       this.presence.broadcast(peer.guestId, { type: 'join', peer });
       return;
@@ -121,7 +124,9 @@ export class PresenceSocket {
       const now = Date.now();
       const last = this.lastTvAt.get(socket) ?? 0;
       if (now - last < 400) return;
-      const next = this.presence.setTv(message.tvId, message.platform, message.videoId);
+      const officeSlug = this.presence.officeOf(socket);
+      if (!officeSlug) return;
+      const next = this.presence.setTv(officeSlug, message.tvId, message.platform, message.videoId);
       if (!next) return;
       this.lastTvAt.set(socket, now);
       this.presence.broadcast(speaker.guestId, next);
@@ -157,7 +162,8 @@ export class PresenceSocket {
       { type: 'furniture_add' } | { type: 'furniture_update' } | { type: 'furniture_remove' } | { type: 'furniture_reset' }
     >,
   ): void {
-    if (!this.presence.speaker(socket)) return;
+    const officeSlug = this.presence.officeOf(socket);
+    if (!officeSlug) return;
     const now = Date.now();
     const last = this.lastFurnitureAt.get(socket) ?? 0;
     if (now - last < 80) return;
@@ -165,25 +171,25 @@ export class PresenceSocket {
 
     let places: FurniturePlacement[] | null = null;
     if (message.type === 'furniture_add') {
-      places = this.offices.addFurniture(DEFAULT_OFFICE_SLUG, {
+      places = this.offices.addFurniture(officeSlug, {
         item: message.item,
         col: message.col,
         row: message.row,
         facing: message.facing,
       });
     } else if (message.type === 'furniture_update') {
-      places = this.offices.updateFurniture(DEFAULT_OFFICE_SLUG, message.id, {
+      places = this.offices.updateFurniture(officeSlug, message.id, {
         col: message.col,
         row: message.row,
         facing: message.facing,
       });
     } else if (message.type === 'furniture_remove') {
-      places = this.offices.removeFurniture(DEFAULT_OFFICE_SLUG, message.id);
+      places = this.offices.removeFurniture(officeSlug, message.id);
     } else {
-      places = this.offices.resetFurniture(DEFAULT_OFFICE_SLUG);
+      places = this.offices.resetFurniture(officeSlug);
     }
 
-    const next = places ?? this.offices.listFurniture(DEFAULT_OFFICE_SLUG) ?? [];
-    this.presence.broadcastAll({ type: 'furniture', places: next });
+    const next = places ?? this.offices.listFurniture(officeSlug) ?? [];
+    this.presence.broadcastOffice(officeSlug, { type: 'furniture', places: next });
   }
 }

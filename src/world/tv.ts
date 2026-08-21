@@ -20,13 +20,13 @@ export type TvSpot = {
   approach: TilePos;
 };
 
-/** Dark screen rect in native sprite pixels (before TILESET_SCALE). */
+/** Inner glass rect in native sprite pixels (before TILESET_SCALE). Inset from the bezel. */
 const SCREEN: Record<string, { x: number; y: number; w: number; h: number }> = {
-  tv: { x: 6, y: 16, w: 21, h: 14 },
-  'budget-tv': { x: 6, y: 16, w: 21, h: 14 },
-  'floor-tv': { x: 6, y: 13, w: 21, h: 14 },
-  'plasma-tv': { x: 4, y: 8, w: 40, h: 28 },
-  'tropical-tv': { x: 4, y: 10, w: 40, h: 28 },
+  tv: { x: 7, y: 17, w: 19, h: 12 },
+  'budget-tv': { x: 7, y: 17, w: 19, h: 12 },
+  'floor-tv': { x: 7, y: 14, w: 19, h: 12 },
+  'plasma-tv': { x: 5, y: 9, w: 38, h: 26 },
+  'tropical-tv': { x: 5, y: 12, w: 38, h: 24 },
 };
 
 const SLICE_SIZE: Record<string, { w: number; h: number }> = Object.fromEntries(

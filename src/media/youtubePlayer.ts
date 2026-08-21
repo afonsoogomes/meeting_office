@@ -1,3 +1,5 @@
+import { decodeYouTubeRef } from '../../shared/protocol';
+
 export type TvAudioState = {
   muted: boolean;
   volume: number;
@@ -9,6 +11,7 @@ type YtPlayer = {
   setVolume: (value: number) => void;
   setSize?: (width: number, height: number) => void;
   loadVideoById: (videoId: string) => void;
+  loadPlaylist?: (args: { list: string; listType?: string; index?: number }) => void;
   destroy: () => void;
   getIframe?: () => HTMLIFrameElement;
 };
@@ -19,7 +22,7 @@ type YtNamespace = {
     config: {
       width: number;
       height: number;
-      videoId: string;
+      videoId?: string;
       host?: string;
       playerVars?: Record<string, string | number>;
       events?: { onReady?: () => void };
@@ -75,9 +78,14 @@ export type YouTubeHandle = {
 
 export async function mountYouTubePlayer(
   host: HTMLElement,
-  videoId: string,
+  ref: string,
   audio: TvAudioState,
 ): Promise<YouTubeHandle> {
+  const media = decodeYouTubeRef(ref);
+  if (!media || (!media.videoId && !media.playlistId)) {
+    throw new Error('Invalid YouTube ref');
+  }
+
   const YT = await loadYouTubeApi();
   let player: YtPlayer | null = null;
   let pending = { ...audio };
@@ -90,23 +98,35 @@ export async function mountYouTubePlayer(
     else player.unMute();
   };
 
+  const playerVars: Record<string, string | number> = {
+    autoplay: 1,
+    mute: 1,
+    controls: 0,
+    rel: 0,
+    modestbranding: 1,
+    playsinline: 1,
+    fs: 0,
+    disablekb: 1,
+    iv_load_policy: 3,
+    cc_load_policy: 0,
+    loop: 1,
+    origin: location.origin,
+  };
+
+  if (media.playlistId) {
+    playerVars.listType = 'playlist';
+    playerVars.list = media.playlistId;
+    if (media.index !== null) playerVars.index = media.index;
+  } else if (media.videoId) {
+    playerVars.playlist = media.videoId;
+  }
+
   player = new YT.Player(host, {
     width: 320,
     height: 180,
-    videoId,
+    ...(media.videoId ? { videoId: media.videoId } : {}),
     host: 'https://www.youtube-nocookie.com',
-    playerVars: {
-      autoplay: 1,
-      mute: 1,
-      controls: 0,
-      rel: 0,
-      modestbranding: 1,
-      playsinline: 1,
-      fs: 0,
-      disablekb: 1,
-      iv_load_policy: 3,
-      origin: location.origin,
-    },
+    playerVars,
     events: {
       onReady: () => {
         ready = true;
@@ -114,6 +134,17 @@ export async function mountYouTubePlayer(
           player?.getIframe?.().setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
         } catch {
           /* ignore */
+        }
+        if (media.playlistId && media.index !== null) {
+          try {
+            player?.loadPlaylist?.({
+              list: media.playlistId,
+              listType: 'playlist',
+              index: media.index,
+            });
+          } catch {
+            /* constructor playerVars already loaded the list */
+          }
         }
         apply();
       },

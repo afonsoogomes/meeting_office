@@ -90,6 +90,11 @@
       let started = false;
       let joiningNetplay = false;
 
+      // EmulatorJS mute/slider only touches RetroArch OpenAL. Netplay guests hear a
+      // separate WebRTC <audio> (and often a second Web Audio graph). Hook speakers
+      // + those elements so the same control actually silences the game.
+      installOfficeVolume();
+
       window.addEventListener('message', (event) => {
         if (event.origin !== window.location.origin) return;
         const data = event.data;
@@ -111,6 +116,139 @@
       start.addEventListener('click', () => void beginPlay());
 
       parent.postMessage({ type: 'office-emulator-ready' }, window.location.origin);
+
+      function installOfficeVolume() {
+        const masters = [];
+
+        function emuVolumeLevel() {
+          const emu = window.EJS_emulator;
+          if (!emu) return 1;
+          if (emu.muted) return 0;
+          if (typeof emu.volume === 'number' && Number.isFinite(emu.volume)) {
+            return Math.max(0, Math.min(1, emu.volume));
+          }
+          return 1;
+        }
+
+        function isNetplayGuest(emu) {
+          return Boolean(emu && emu.isNetplay && emu.netplay && !emu.netplay.owner);
+        }
+
+        function applyToAudio(el) {
+          if (!(el instanceof HTMLAudioElement)) return;
+          const level = emuVolumeLevel();
+          try {
+            el.volume = level;
+            el.muted = level <= 0;
+          } catch {
+            /* ignore */
+          }
+        }
+
+        function applyOfficeVolume() {
+          const level = emuVolumeLevel();
+          const np = window.EJS_emulator && window.EJS_emulator.netplay;
+          if (np && np._remoteAudioGain) {
+            try {
+              np._remoteAudioGain.gain.value = Number(np._audioBoostFactor) || 1;
+            } catch {
+              /* ignore */
+            }
+          }
+          for (let i = 0; i < masters.length; i += 1) {
+            try {
+              masters[i].gain.value = level;
+            } catch {
+              /* context closed */
+            }
+          }
+          document.querySelectorAll('audio').forEach(applyToAudio);
+        }
+
+        function neutralizeAlGains(emu) {
+          try {
+            const ctx = emu.Module && emu.Module.AL && emu.Module.AL.currentCtx;
+            if (!ctx || !ctx.sources) return;
+            ctx.sources.forEach((source) => {
+              if (source && source.gain && source.gain.gain) source.gain.gain.value = 1;
+            });
+          } catch {
+            /* ignore */
+          }
+        }
+
+        function hookSetVolume() {
+          const emu = window.EJS_emulator;
+          if (!emu || typeof emu.setVolume !== 'function' || emu._officeVolumeHook) {
+            return Boolean(emu && emu._officeVolumeHook);
+          }
+          emu._officeVolumeHook = true;
+          const orig = emu.setVolume.bind(emu);
+          emu.setVolume = (volume) => {
+            const result = orig(volume);
+            if (!isNetplayGuest(emu)) neutralizeAlGains(emu);
+            applyOfficeVolume();
+            return result;
+          };
+          applyOfficeVolume();
+          return true;
+        }
+
+        const nodeProto = window.AudioNode && window.AudioNode.prototype;
+        if (nodeProto && !nodeProto._officeVolumeHook && typeof nodeProto.connect === 'function') {
+          nodeProto._officeVolumeHook = true;
+          const origConnect = nodeProto.connect;
+          nodeProto.connect = function () {
+            try {
+              const ctx = this.context;
+              const dest = arguments[0];
+              if (ctx && dest === ctx.destination) {
+                if (!ctx._officeMaster) {
+                  ctx._officeMaster = ctx.createGain();
+                  ctx._officeMaster.gain.value = emuVolumeLevel();
+                  origConnect.call(ctx._officeMaster, ctx.destination);
+                  masters.push(ctx._officeMaster);
+                }
+                if (this !== ctx._officeMaster) {
+                  const args = Array.prototype.slice.call(arguments);
+                  args[0] = ctx._officeMaster;
+                  return origConnect.apply(this, args);
+                }
+              }
+            } catch {
+              /* fall through */
+            }
+            return origConnect.apply(this, arguments);
+          };
+        }
+
+        const mediaProto = window.HTMLMediaElement && window.HTMLMediaElement.prototype;
+        if (mediaProto && !mediaProto._officeVolumeHook && typeof mediaProto.play === 'function') {
+          mediaProto._officeVolumeHook = true;
+          const origPlay = mediaProto.play;
+          mediaProto.play = function () {
+            applyToAudio(this);
+            return origPlay.apply(this, arguments);
+          };
+        }
+
+        const observer = new MutationObserver((records) => {
+          for (let i = 0; i < records.length; i += 1) {
+            const nodes = records[i].addedNodes;
+            for (let j = 0; j < nodes.length; j += 1) {
+              const node = nodes[j];
+              if (node instanceof HTMLAudioElement) applyToAudio(node);
+              if (node instanceof HTMLElement) node.querySelectorAll('audio').forEach(applyToAudio);
+            }
+          }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+        document.addEventListener('pointerdown', applyOfficeVolume, true);
+        window.setInterval(() => {
+          hookSetVolume();
+          applyOfficeVolume();
+        }, 400);
+      }
 
       function beginPlay() {
         if (!session || started) return;

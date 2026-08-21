@@ -1,15 +1,22 @@
 import { IsOptional, IsString, Length, Matches } from 'class-validator';
 import { OFFICE_SLUG_RE } from '../../../shared/protocol';
 
-export class VoiceTokenDto {
-  @Matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
-  guestId!: string;
-
+export class CreateOfficeDto {
   @IsString()
-  @Length(2, 18)
+  @Length(2, 48)
   name!: string;
+
+  @Matches(OFFICE_SLUG_RE)
+  slug!: string;
+}
+
+export class UpdateOfficeDto {
+  @IsOptional()
+  @IsString()
+  @Length(2, 48)
+  name?: string;
 
   @IsOptional()
   @Matches(OFFICE_SLUG_RE)
-  office?: string;
+  slug?: string;
 }

@@ -15,7 +15,7 @@ Na mesma rede, o Vite imprime um endereço **Network**. A voz nesse caso precisa
 
 Na primeira visita o jogo pede um nome (fica no `localStorage`, junto com um `guestId` para virar conta depois). Cada aba tem um id de sessão próprio, então duas abas do mesmo browser são duas pessoas.
 
-O mapa e os móveis iniciais vêm do Nest (`GET /offices/default`, SQLite em `server/data/office.db`). O arquivo `shared/office-default.ts` é o seed: na primeira subida o banco copia essa casa. Se o Nest estiver fora, o jogo ainda abre com o seed local.
+O mapa e os móveis vêm do Nest (`GET /offices/:slug`, SQLite em `server/data/office.db`). O arquivo `shared/office-default.ts` é o seed: na primeira subida o banco cria o escritório `default`. `/` e `/default` abrem esse mapa. `/new` (ou o botão de casa no canto) cria outro escritório — nome + slug, o slug vira o endereço. Gente, TV, móveis, voz e fliperama ficam isolados por slug. Se o Nest estiver fora, o jogo ainda abre com o seed local.
 
 ## Controles
 

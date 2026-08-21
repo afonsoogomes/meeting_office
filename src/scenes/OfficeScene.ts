@@ -22,9 +22,12 @@ import { isActiveSession, isWatchReady, type GameCatalogItem, type GameSessionVi
 import type { FurniturePlacement, Peer, Pose, TvScreen } from '../../shared/protocol';
 import { VoiceClient } from '../net/voice';
 import { BuilderPanel } from '../ui/builder';
+import { PeoplePanel } from '../ui/peoplePanel';
+import { OfficesPanel } from '../ui/officesPanel';
 import { RoomChat } from '../ui/chat';
 import { Hud } from '../ui/hud';
 import { WalkJoystick } from '../ui/joystick';
+import { MediaMixer, mixerGain } from '../ui/mediaMixer';
 import { TvAudioHud } from '../ui/tvAudio';
 import { ArcadePanel } from '../ui/arcadePanel';
 import { ArcadeOverlay } from '../ui/arcadeOverlay';
@@ -32,6 +35,7 @@ import { TvPanel } from '../ui/tvPanel';
 import { TvScreens } from '../ui/tvScreens';
 import { VoiceHud } from '../ui/voiceHud';
 import { MediaStage } from '../ui/mediaStage';
+import { ShareInvites } from '../ui/shareInvite';
 import { BuildGhost } from '../world/buildMode';
 import { COLLEAGUES, colleagueWorld } from '../world/colleagues';
 import {
@@ -67,6 +71,7 @@ import {
   createFloorGrid,
   createWallGrid,
   createGroundGrid,
+  currentOfficeSlug,
   defaultFurniture,
   getBuiltHouse,
   initialFurniture,
@@ -153,6 +158,7 @@ export class OfficeScene extends Phaser.Scene {
   private voice!: VoiceClient;
   private voiceHud!: VoiceHud;
   private mediaStage!: MediaStage;
+  private shareInvites!: ShareInvites;
   private presenceStatus: PresenceStatus = 'offline';
   private localGuestId = '';
   private lastPoseAt = 0;
@@ -161,11 +167,14 @@ export class OfficeScene extends Phaser.Scene {
   private joystick!: WalkJoystick;
   private chat!: RoomChat;
   private builder!: BuilderPanel;
+  private officesPanel!: OfficesPanel;
+  private peoplePanel!: PeoplePanel;
   private tvPanel!: TvPanel;
   private arcadePanel!: ArcadePanel;
   private arcadeOverlay!: ArcadeOverlay;
   private tvScreens!: TvScreens;
   private tvAudio!: TvAudioHud;
+  private screenAudio!: MediaMixer;
   private ghost!: BuildGhost;
   private keys!: KeyMap;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -233,15 +242,52 @@ export class OfficeScene extends Phaser.Scene {
       void this.voice.unlock();
     });
     this.voice = new VoiceClient(() => this.refreshVoiceHud());
-    this.voice.prepare(this.localGuestId, avatar.name);
+    this.voice.prepare(this.localGuestId, avatar.name, currentOfficeSlug());
+    this.shareInvites = new ShareInvites({
+      onWatch: (guestId) => {
+        void this.voice.unlock();
+        this.voice.watchScreen(guestId);
+        this.mediaStage.expandScreenOf(guestId);
+      },
+    });
     this.mediaStage = new MediaStage({
       onExpand: () => this.tvScreens?.collapse(),
+      onStopWatch: (guestId) => this.voice.unwatchScreen(guestId),
     });
     this.chat = new RoomChat((text) => this.sendChat(text));
     this.builder = new BuilderPanel({
       onSelect: (id) => this.ghost.setItem(id),
       onReset: () => this.resetFurniture(),
       onClose: () => this.setBuildMode(false),
+    });
+    this.officesPanel = new OfficesPanel({
+      onCreate: () => {
+        this.officesPanel.setOpen(false);
+        location.assign('/new');
+      },
+      onClose: () => this.officesPanel.setOpen(false),
+    });
+    this.peoplePanel = new PeoplePanel({
+      onVolume: (guestId, volume) => this.voice.setPeerLevel(guestId, volume),
+      onClose: () => this.peoplePanel.setOpen(false),
+    });
+    document.querySelector('#people-btn')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.setBuildMode(false);
+      this.arcadePanel.setOpen(false);
+      this.tvPanel.setOpen(false);
+      this.hud.setCustomizerOpen(false);
+      this.officesPanel.setOpen(false);
+      this.peoplePanel.setOpen(!this.peoplePanel.isOpen());
+    });
+    document.querySelector('#offices-btn')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.setBuildMode(false);
+      this.arcadePanel.setOpen(false);
+      this.tvPanel.setOpen(false);
+      this.hud.setCustomizerOpen(false);
+      this.peoplePanel.setOpen(false);
+      this.officesPanel.setOpen(!this.officesPanel.isOpen());
     });
     this.tvScreens = new TvScreens({
       onExpand: () => this.mediaStage.collapse(),
@@ -250,6 +296,17 @@ export class OfficeScene extends Phaser.Scene {
       onChange: (audio) => this.tvScreens.setAudio(audio),
     });
     this.tvScreens.setAudio(this.tvAudio.state());
+    const screenDock = document.querySelector('#screen-audio');
+    const screenOverlay = document.querySelector('#screen-overlay-audio');
+    if (!(screenDock instanceof HTMLElement) || !(screenOverlay instanceof HTMLElement)) {
+      throw new Error('Screen audio markup missing');
+    }
+    this.screenAudio = new MediaMixer('meeting-office-screen-audio-v1', { muted: false, volume: 80 }, {
+      onChange: (audio) => this.voice.setScreenLevel(mixerGain(audio)),
+    });
+    this.screenAudio.attach(screenDock);
+    this.screenAudio.attach(screenOverlay);
+    this.voice.setScreenLevel(mixerGain(this.screenAudio.state()));
     this.tvPanel = new TvPanel({
       onPlay: (tv, videoId) => this.playTv(tv, videoId),
       onStop: (tv) => this.stopTv(tv),
@@ -308,11 +365,11 @@ export class OfficeScene extends Phaser.Scene {
       npc.root.body.checkCollision.none = true;
     }
 
-    this.cameras.main.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
     this.cameras.main.startFollow(this.player.root, false, 0.14, 0.14);
     this.fitCamera(this.scale.width, this.scale.height);
     this.zoomTarget = viewZoom(this.scale.width, this.scale.height);
     this.cameras.main.setZoom(this.zoomTarget);
+    this.syncCameraBounds();
     this.cameras.main.roundPixels = true;
     this.cameras.main.fadeIn(350, 5, 3, 4);
 
@@ -332,7 +389,7 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       if (!pointer.leftButtonDown()) return;
-      if (this.arcadeOverlay.isOpen()) return;
+      if (this.arcadeOverlay.isOpen() || this.mediaStage.isScreenExpanded()) return;
       this.beginPointer(pointer);
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
@@ -359,6 +416,14 @@ export class OfficeScene extends Phaser.Scene {
 
     keyboard.on('keydown-ESC', () => {
       if (this.hud.closeHelp()) return;
+      if (this.officesPanel.isOpen()) {
+        this.officesPanel.setOpen(false);
+        return;
+      }
+      if (this.peoplePanel.isOpen()) {
+        this.peoplePanel.setOpen(false);
+        return;
+      }
       if (this.tvScreens.collapse()) return;
       if (this.mediaStage.collapse()) return;
       if (this.arcadeOverlay.isOpen()) {
@@ -434,6 +499,7 @@ export class OfficeScene extends Phaser.Scene {
       name: avatar.name,
       appearance: avatar.appearance,
       pose: this.player.snapshot(),
+      office: currentOfficeSlug(),
     });
     this.scale.on('resize', this.onGameResize, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -458,12 +524,16 @@ export class OfficeScene extends Phaser.Scene {
     this.tickZoom(delta);
     this.updateHover();
     this.joystick.setBlocked(
-      this.builder.isOpen() || this.arcadeOverlay.isOpen() || this.hud.isTyping(),
+      this.builder.isOpen() ||
+        this.officesPanel.isOpen() ||
+        this.arcadeOverlay.isOpen() ||
+        this.mediaStage.isScreenExpanded() ||
+        this.hud.isTyping(),
     );
     if (this.builder.isOpen()) this.tvScreens.hide();
     else this.tvScreens.tick(this);
 
-    if (this.arcadeOverlay.isOpen()) {
+    if (this.arcadeOverlay.isOpen() || this.mediaStage.isScreenExpanded()) {
       this.player.move(0, 0, time);
       this.player.syncPosition();
       this.flushPose();
@@ -499,6 +569,8 @@ export class OfficeScene extends Phaser.Scene {
       if (Phaser.Input.Keyboard.JustDown(this.keys.C)) {
         this.tvPanel.setOpen(false);
         this.arcadePanel.setOpen(false);
+        this.officesPanel.setOpen(false);
+        this.peoplePanel.setOpen(false);
         this.setBuildMode(false);
         this.hud.toggleCustomizer();
       }
@@ -549,6 +621,7 @@ export class OfficeScene extends Phaser.Scene {
   private fitCamera(width: number, height: number): void {
     const cam = this.cameras.main;
     cam.setSize(Math.max(1, Math.floor(width)), Math.max(1, Math.floor(height)));
+    this.syncCameraBounds();
   }
 
   private tickZoom(delta: number): void {
@@ -557,10 +630,23 @@ export class OfficeScene extends Phaser.Scene {
     const diff = target - cam.zoom;
     if (Math.abs(diff) < 0.0008) {
       if (cam.zoom !== target) cam.setZoom(target);
+      this.syncCameraBounds();
       return;
     }
     const t = 1 - Math.exp(-ZOOM_FOLLOW * (delta / 1000));
     cam.setZoom(cam.zoom + diff * t);
+    this.syncCameraBounds();
+  }
+
+  /** When the view is larger than the office, pad bounds so the map sits in the middle. */
+  private syncCameraBounds(): void {
+    const cam = this.cameras.main;
+    const zoom = Math.max(cam.zoom, 0.0001);
+    const viewW = cam.width / zoom;
+    const viewH = cam.height / zoom;
+    const padX = Math.max(0, (viewW - MAP_WIDTH) / 2);
+    const padY = Math.max(0, (viewH - MAP_HEIGHT) / 2);
+    cam.setBounds(-padX, -padY, MAP_WIDTH + padX * 2, MAP_HEIGHT + padY * 2);
   }
 
   private setBuildMode(open: boolean): void {
@@ -570,6 +656,8 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.builder.setOpen(open);
     if (open) {
+      this.officesPanel.setOpen(false);
+      this.peoplePanel.setOpen(false);
       this.tvPanel.setOpen(false);
       this.arcadePanel.setOpen(false);
       this.hud.setCustomizerOpen(false);
@@ -796,7 +884,15 @@ export class OfficeScene extends Phaser.Scene {
     const panned = this.pointerPanned;
     this.panning = false;
     this.pointerPanned = false;
-    if (panned || this.hud.isTyping() || this.builder.isOpen() || this.arcadeOverlay.isOpen()) return;
+    if (
+      panned ||
+      this.hud.isTyping() ||
+      this.builder.isOpen() ||
+      this.arcadeOverlay.isOpen() ||
+      this.mediaStage.isScreenExpanded()
+    ) {
+      return;
+    }
     this.clickAt(this.panFrom.x, this.panFrom.y);
   }
 
@@ -834,6 +930,13 @@ export class OfficeScene extends Phaser.Scene {
     if (this.pointerPanned) {
       this.hover.clear().setVisible(false);
       this.game.canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    const overPerson = this.remoteAtScreen(this.input.activePointer.x, this.input.activePointer.y);
+    if (overPerson) {
+      this.hover.clear().setVisible(false);
+      this.game.canvas.style.cursor = 'pointer';
       return;
     }
 
@@ -1080,8 +1183,30 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private clickAt(x: number, y: number): void {
+    const guestId = this.remoteAtScreen(x, y);
+    if (guestId) {
+      this.arcadePanel.setOpen(false);
+      this.tvPanel.setOpen(false);
+      this.officesPanel.setOpen(false);
+      this.hud.setCustomizerOpen(false);
+      this.peoplePanel.focusPerson(guestId);
+      return;
+    }
     const world = this.cameras.main.getWorldPoint(x, y);
     this.clickTileAt(worldToTile(world.x, world.y));
+  }
+
+  private remoteAtScreen(x: number, y: number): string | null {
+    const world = this.cameras.main.getWorldPoint(x, y);
+    let best: { guestId: string; dist: number } | null = null;
+    for (const [guestId, remote] of this.remotes) {
+      const dx = world.x - remote.root.x;
+      const dy = world.y - (remote.root.y - 36);
+      const dist = Math.hypot(dx, dy);
+      if (dist > 30) continue;
+      if (!best || dist < best.dist) best = { guestId, dist };
+    }
+    return best?.guestId ?? null;
   }
 
   private clickTileAt(goal: TilePos): void {
@@ -1224,6 +1349,21 @@ export class OfficeScene extends Phaser.Scene {
       camera: this.voice.isCameraEnabled(),
       screen: this.voice.isScreenShareEnabled(),
     });
+    this.syncShareInvites();
+  }
+
+  private syncShareInvites(): void {
+    this.shareInvites.sync(
+      this.voice.listRemoteScreenShares().map((guestId) => ({
+        guestId,
+        name: this.remoteName(guestId),
+      })),
+      this.voice.watchingScreens(),
+    );
+  }
+
+  private remoteName(guestId: string): string {
+    return this.remotes.get(guestId)?.displayName || 'Alguém';
   }
 
   private tickVoice(): void {
@@ -1244,6 +1384,30 @@ export class OfficeScene extends Phaser.Scene {
     this.player.setMicMuted(this.voice.isRemoteMuted(this.localGuestId));
     this.voice.tick(places);
     this.mediaStage.tick(this, this.voice.listTiles(), this.mediaAnchors(places));
+    this.syncScreenAudio();
+    this.syncShareInvites();
+    this.syncPeoplePanel();
+  }
+
+  private syncScreenAudio(): void {
+    const watching = this.voice.watchingScreens().size > 0;
+    const expanded = this.mediaStage.isScreenExpanded();
+    this.screenAudio.setActive(watching);
+    this.screenAudio.setRootVisible((root) => {
+      if (!watching) return false;
+      return root.id === 'screen-overlay-audio' ? expanded : !expanded;
+    });
+  }
+
+  private syncPeoplePanel(): void {
+    const people = [...this.remotes.entries()].map(([guestId, remote]) => ({
+      guestId,
+      name: remote.displayName,
+      speaking: this.voice.isSpeaking(guestId),
+      volume: this.voice.peerLevel(guestId),
+    }));
+    people.sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+    this.peoplePanel.sync(people);
   }
 
   private mediaAnchors(places: Map<string, VoicePlace>): Map<string, { x: number; y: number; name: string; visible: boolean }> {
@@ -1323,7 +1487,7 @@ export class OfficeScene extends Phaser.Scene {
     this.arcadePanel.setError('');
     try {
       this.gameCatalog = await fetchGameCatalog();
-      this.applyGameSessions(await fetchGameSessions());
+      this.applyGameSessions(await fetchGameSessions(currentOfficeSlug()));
       this.arcadePanel.open(this.localGuestId, this.gameCatalog, this.gameSessions, this.gameSession);
     } catch (error) {
       this.arcadePanel.open(this.localGuestId, this.gameCatalog, this.gameSessions, this.gameSession);
@@ -1334,7 +1498,9 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private async createArcadeSession(gameId: string): Promise<void> {
-    await this.runArcadeAction(() => createGameSession(this.localGuestId, this.player.displayName, gameId));
+    await this.runArcadeAction(() =>
+      createGameSession(this.localGuestId, this.player.displayName, gameId, currentOfficeSlug()),
+    );
   }
 
   private async joinArcadeSession(sessionId: string): Promise<void> {

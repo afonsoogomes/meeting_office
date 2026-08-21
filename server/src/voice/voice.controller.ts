@@ -9,6 +9,6 @@ export class VoiceController {
   @Post('token')
   @HttpCode(HttpStatus.OK)
   token(@Body() body: VoiceTokenDto): Promise<{ url: string; token: string; room: string }> {
-    return this.voice.issue(body.guestId, body.name);
+    return this.voice.issue(body.guestId, body.name, body.office);
   }
 }

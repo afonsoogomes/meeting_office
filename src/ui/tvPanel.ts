@@ -106,7 +106,7 @@ export class TvPanel {
     }
     const videoId = parseYouTubeId(this.url.value);
     if (!videoId) {
-      this.setError('Cola um link do YouTube (watch, youtu.be ou shorts).');
+      this.setError('Cola um link do YouTube (vídeo, shorts ou playlist).');
       return;
     }
     this.setError('');
